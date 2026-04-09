@@ -1,0 +1,1 @@
+PROMPT = "[FORMAT:TSV] Transcrit ce document avec segmentation au format TSV."
