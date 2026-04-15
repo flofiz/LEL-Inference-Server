@@ -69,6 +69,9 @@ class HTREngine:
         args = AsyncEngineArgs(**kwargs)
         self.engine = AsyncLLMEngine.from_engine_args(args)
         self.logger = logging.getLogger("ray.serve")
+    
+    def get_model_info(self):
+        return {"model": self.name}
 
     async def stream_results(self, results_generator, params) -> AsyncGenerator[bytes, None]:
         num_returned = 0
@@ -236,7 +239,7 @@ class HTREngine:
                     return Response(status_code=499)
                 outputs += text_outputs
             
-            outputs = add_metadata(outputs, image_width=metadata["imageWidth"], image_height=metadata["imageHeight"])
+            outputs = add_metadata(outputs, metadata)
             # outputs = postprocess_output("\n".join(outputs))
             return Response(content=json.dumps(outputs))
 

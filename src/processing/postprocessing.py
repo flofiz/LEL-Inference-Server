@@ -155,7 +155,7 @@ def postprocess_output(output: str, ratios: tuple[float, float] = (1.0, 1.0), of
                 print(f"Erreur lors du traitement de la ligne: {line}. Détails de l'erreur: {e}", flush=True)
     return results
 
-def add_metadata(lines: List[dict], image_width: int, image_height: int) -> List[dict]:
+def add_metadata(lines: List[dict], metadata: dict) -> List[dict]:
     """
     Add metadata to each output dictionary.
     Args:
@@ -164,9 +164,7 @@ def add_metadata(lines: List[dict], image_width: int, image_height: int) -> List
     Returns:
         List[dict]: Updated list of output dictionaries with metadata.
     """
-    output = {
-        "imageWidth": image_width,
-        "imageHeight": image_height,
-        "shapes": lines
-    }
+    output = {}
+    output.update(metadata)
+    output["shapes"] = lines
     return output

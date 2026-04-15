@@ -1,13 +1,29 @@
+import os
 from ray import serve
 from api.routes import create_routes
 from starlette.responses import StreamingResponse, Response
 from starlette.requests import Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from inference.engine import HTREngine
 from ray.serve.config import HTTPOptions
 
+MAINTENANCE_FILE = "/tmp/maintenance"
+
 app = FastAPI()
+
+class MaintenanceMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if os.path.exists(MAINTENANCE_FILE):
+            return Response(
+                content="Service en maintenance. Veuillez réessayer plus tard.",
+                status_code=200,
+                headers={"Retry-After": "3600"},
+            )
+        return await call_next(request)
+
+app.add_middleware(MaintenanceMiddleware)
 # Configuration CORS
 # app.add_middleware(
 #     CORSMiddleware,
@@ -50,9 +66,13 @@ class VLLMPredictDeployment:
     async def health(self):
         return {"status": "ok"}
     
+    @app.get("/model_info")
+    async def model_info(self):
+        return self.engine.get_model_info()
+    
 if __name__ == "__main__":
     deployment = VLLMPredictDeployment.bind(
-        model="/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
+        model="/home/fizainef/LLM/Weights/Qwen2.5-VL-3B_tsv_grpo-27032026",#"/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
         max_num_seqs=90,
         max_model_len=8192,
         max_num_batched_tokens=16384*2,
