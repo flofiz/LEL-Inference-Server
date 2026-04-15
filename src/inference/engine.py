@@ -194,8 +194,6 @@ class HTREngine:
         requests_ids = []
         if stream:
             background_tasks = BackgroundTasks()
-        else:
-            outputs_array = []
         sampling_params = SamplingParams(**request_dict)
         
         for inputs, ratio, offset in get_inputs(image, await self.engine.get_tokenizer(), PROMPT, SYSTEM):
@@ -218,28 +216,39 @@ class HTREngine:
                 self.stream_multiple_results(generators_infos, pages_params, metadata), background=background_tasks
             )
         else:
-            #TODO perplexity hors streaming
             async def consume_generator(gen, id, params):
-                # Non-streaming case
-                final_output = None
-                async for request_output in gen:
-                    if await request.is_disconnected():
-                        # Abort the request if the client disconnects.
-                        await self.engine.abort(id)
-                        return None
-                    final_output = request_output
-                response = [output.text for output in final_output.outputs]
-                outputs = postprocess_output("\n".join(response), *params)
-                return outputs
+                # Non-streaming: réutilise stream_results pour centraliser la logique de perplexité
+                if await request.is_disconnected():
+                    await self.engine.abort(id)
+                    return None
+                shapes = []
+                metrics = None
+                async for chunk in self.stream_results(gen, params):
+                    decoded = json.loads(chunk.decode("utf-8").strip())
+                    if "metrics" in decoded:
+                        metrics = decoded["metrics"]
+                    else:
+                        shapes.append(decoded)
+                return shapes, metrics
 
             results = await asyncio.gather(*[consume_generator(gen, id, params) for gen, id, params in zip(generators_infos, requests_ids, pages_params)])
-            outputs = []
-            for text_outputs in results:
-                if text_outputs is None:
+            all_shapes = []
+            all_metrics = []
+            for result in results:
+                if result is None:
                     return Response(status_code=499)
-                outputs += text_outputs
-            
-            outputs = add_metadata(outputs, metadata)
-            # outputs = postprocess_output("\n".join(outputs))
-            return Response(content=json.dumps(outputs))
+                shapes, metrics = result
+                all_shapes += shapes
+                if metrics:
+                    all_metrics.append(metrics)
+
+            if all_metrics:
+                total_file_length = np.sum([m["file_length"] for m in all_metrics])
+                total_char_ppl_count = np.sum([m["char_ppl_count"] for m in all_metrics])
+                avg_file_perplexity = math.exp(-np.sum([m["file_perplexity"] for m in all_metrics]) / total_file_length) if total_file_length > 0 else 0
+                avg_char_perplexity = math.exp(-np.sum([m["char_perplexity"] for m in all_metrics]) / total_char_ppl_count) if total_char_ppl_count > 0 else 0
+                metadata["metrics"] = {"file_perplexity": avg_file_perplexity, "char_perplexity": avg_char_perplexity}
+
+            output = add_metadata(all_shapes, metadata)
+            return Response(content=json.dumps(output))
 
