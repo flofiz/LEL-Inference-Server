@@ -1,5 +1,6 @@
 from .PolygonFiltering import _calculate_obb_corners
 from math import radians, cos, sin
+import re
 import numpy as np
 from typing import List, Dict
 
@@ -110,17 +111,25 @@ def offset_polygon(polygon: List[tuple], offset: int) -> List[tuple]:
     return offset_polygon
 
 def postprocess_line(output : str, ratios: tuple[float, float] = (1.0, 1.0), offset: int = 0, char_perplexity: float = 0.0, line_perplexity: float = 0.0) -> dict:
-    values = output.strip().split('\t')
-    res_values = []
-    if len(values) == 6:
-        text, xmin, ymin, xmax, ymax, angle = values
+    line = output.strip()
+    # rsplit from the right with max 5 splits: handles text that contains tabs
+    parts = line.rsplit('\t', 5)
+    if len(parts) == 6:
+        text, xmin, ymin, xmax, ymax, angle = parts
     else:
-        for value in values:
-            res_values+= value.split(",")
-        if len(res_values) != 6:
-            raise ValueError(f"Format de ligne inattendu: '{output}'. Attendu: 'text\\txmin\\tymin\\txmax\\tymax\\tangle'.")
-        else:
+        # Try comma-separated
+        res_values = []
+        for value in line.split('\t'):
+            res_values += value.split(",")
+        if len(res_values) == 6:
             text, xmin, ymin, xmax, ymax, angle = res_values
+        else:
+            # Fallback: whitespace-separated, text may contain spaces or numbers
+            m = re.match(r'^(.*)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?\d+)\s*$', line)
+            if m:
+                text, xmin, ymin, xmax, ymax, angle = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6)
+            else:
+                raise ValueError(f"Format de ligne inattendu: '{output}'. Attendu: 'text\\txmin\\tymin\\txmax\\tymax\\tangle'.")
     xmin = float(xmin)
     ymin = float(ymin)
     xmax = float(xmax)

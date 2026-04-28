@@ -52,6 +52,52 @@ def send_multiple_parallel_requests(num_requests: int):
     for thread in threads:
         thread.join()
 
+def test_max_concurrency(num_requests: int = 20):
+    import requests
+    import threading
+
+    results = [None] * num_requests
+
+    def send_request(i: int):
+        start_time = time.time()
+        img = Image.open("/home/fizainef/FRAD034_C07228_00033.jpg")
+        byte_io = BytesIO()
+        img.save(byte_io, 'png')
+        byte_io.seek(0)
+        try:
+            output = requests.post(
+                "https://localhost:443/transcribe/stream",
+                files={"image": byte_io},
+                stream=True,
+                verify=False,
+            )
+            response_text = b"".join(output.iter_content()).decode("utf-8")
+            end_time = time.time()
+            results[i] = (True, end_time - start_time)
+            print(f"[{i:02d}] OK in {end_time - start_time:.2f}s")
+        except Exception as e:
+            end_time = time.time()
+            results[i] = (False, end_time - start_time)
+            print(f"[{i:02d}] ERROR in {end_time - start_time:.2f}s: {e}")
+
+    threads = [threading.Thread(target=send_request, args=(i,)) for i in range(num_requests)]
+    global_start = time.time()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    global_end = time.time()
+
+    successes = sum(1 for ok, _ in results if ok)
+    print(f"\n--- Résultats concurrence ({num_requests} requêtes) ---")
+    print(f"Succès : {successes}/{num_requests}")
+    print(f"Temps total : {global_end - global_start:.2f}s")
+    times = [elapsed for _, elapsed in results]
+    print(f"Temps moyen : {sum(times)/len(times):.2f}s")
+    print(f"Temps min/max : {min(times):.2f}s / {max(times):.2f}s")
+
+
 if __name__ == "__main__":
-    send_image_sample_request()
+    # send_image_sample_request()
     # send_sample_request()
+    test_max_concurrency(20)

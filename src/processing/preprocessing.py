@@ -52,7 +52,13 @@ def crop_and_get_boxes(image, offset = 0):
 def reshape_image(image):
     img_width, img_height = image.size
     max_pixels = 1280*28*28
-    ratio = min(max_pixels / (img_width* img_height), 1)
+    min_pixels = 960*28*28
+    if img_width*img_height < min_pixels:
+        ratio = min_pixels / (img_width* img_height)
+    elif img_width*img_height > max_pixels:
+        ratio = max_pixels / (img_width* img_height)
+    else:
+        ratio = 1.0
     new_size = tuple(int(dim * sqrt(ratio)) for dim in image.size)
     # set each dimension to be a multiple of 28
     new_size = tuple(int(dim // 28) * 28 for dim in new_size)

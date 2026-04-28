@@ -34,7 +34,9 @@ app.add_middleware(MaintenanceMiddleware)
 #     allow_headers=["*"],
 # )
 
-@serve.deployment(ray_actor_options={"num_gpus": 1}, logging_config={"enable_access_log": False})
+@serve.deployment(ray_actor_options={"num_gpus": 1},
+                  logging_config={"enable_access_log": False,},
+                  max_ongoing_requests=100)
 @serve.ingress(app)
 class VLLMPredictDeployment:
     def __init__(self, **engine_kwargs):
@@ -71,8 +73,14 @@ class VLLMPredictDeployment:
         return self.engine.get_model_info()
     
 if __name__ == "__main__":
+    import ray
+    ray.init(
+        _metrics_export_port=8080,
+        include_dashboard=True,
+        dashboard_host="127.0.0.1",
+    )
     deployment = VLLMPredictDeployment.bind(
-        model="/home/fizainef/LLM/Weights/Qwen2.5-VL-3B_tsv_grpo-27032026",#"/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
+        model="/home/fizainef/LLM/Weights/Qwen2.5-VL_GRPO",#"/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
         max_num_seqs=90,
         max_model_len=8192,
         max_num_batched_tokens=16384*2,

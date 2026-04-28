@@ -9,6 +9,7 @@ from starlette.responses import StreamingResponse, Response
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.sampling_params import SamplingParams
+from vllm.sampling_params import StructuredOutputsParams
 from vllm.utils import random_uuid
 
 from ray import serve
@@ -29,7 +30,25 @@ from typing import List, Dict
 
 import logging
 
+class _VLLMToRayHandler(logging.Handler):
+    """Redirige les logs vllm vers le logger ray.serve."""
+    def __init__(self, target_logger: logging.Logger):
+        super().__init__()
+        self.target_logger = target_logger
 
+    def emit(self, record: logging.LogRecord):
+        # Préfixer le nom pour distinguer l'origine
+        record.name = f"ray.serve.vllm.{record.name}"
+        self.target_logger.handle(record)
+
+LATIN_CHARS = r"[A-Za-zÀ-ÖØ-öø-ÿ0-9 ,\.\'\"\-]+"
+latin1_regex = r"^[\x09\x0A\x0D\x20-\x7E\xA0-\xFF]+$"
+ANGLE = r"-?(90|[0-8]?\d)(\.\d+)?"
+COORD = r"-?\d+(\.\d+)?"
+
+LINE = rf"{LATIN_CHARS}\t{COORD}\t{COORD}\t{COORD}\t{COORD}\t{ANGLE}\n"
+
+guided_regex = rf"```tsv\n{LINE}+```"
 class HTREngine:
     def __init__(self, name, **kwargs):
         """
@@ -66,9 +85,26 @@ class HTREngine:
             disable_log_requests: disable logging requests.
         """
         self.name = name
+        self.logger = logging.getLogger("ray.serve")
+
+        # 1. Configurer le handler de redirection AVANT la création de l'engine
+        handler = _VLLMToRayHandler(self.logger)
+        vllm_root = logging.getLogger("vllm")
+        vllm_root.handlers.clear()
+        vllm_root.addHandler(handler)
+        vllm_root.propagate = False
+        vllm_root.setLevel(logging.INFO)
+
+        # 2. Créer l'engine (vllm va créer des loggers enfants ici)
         args = AsyncEngineArgs(**kwargs)
         self.engine = AsyncLLMEngine.from_engine_args(args)
-        self.logger = logging.getLogger("ray.serve")
+
+        # 3. Nettoyer tous les loggers enfants vllm.* créés pendant l'init
+        #    → les laisser propager vers vllm_root (qui a notre handler)
+        for name, lgr in logging.Logger.manager.loggerDict.items():
+            if name.startswith("vllm") and isinstance(lgr, logging.Logger):
+                lgr.handlers.clear()
+                lgr.propagate = True  # remonte vers vllm_root → notre handler
     
     def get_model_info(self):
         return {"model": self.name}
@@ -106,15 +142,20 @@ class HTREngine:
                 else:
                     char_logprob += token_logprob
                     char_ppl_count += 1
-            if text_output == "\n":
-                if not "```" in ret:
+            # Utiliser une boucle while pour gérer les tokens multi-caractères
+            # qui peuvent contenir \n (ex: ".\n", "\t0\n") — if text_output == "\n"
+            # manquait ces cas et causait des lignes non splitées en non-stream.
+            while "\n" in ret:
+                newline_idx = ret.index("\n")
+                line = ret[:newline_idx + 1]
+                ret = ret[newline_idx + 1:]
+                if not "```" in line:
                     line_perplexities.append(math.exp(-line_perplexity/line_length) if line_length>0 else 0)
                     try:
-                        ret = postprocess_line(ret, char_perplexity=char_perplexities[-1] if char_perplexities else 0, line_perplexity=line_perplexities[-1] if line_perplexities else 0, *params)
-                        yield (json.dumps(ret) + "\n").encode("utf-8")
+                        processed = postprocess_line(line, char_perplexity=char_perplexities[-1] if char_perplexities else 0, line_perplexity=line_perplexities[-1] if line_perplexities else 0, *params)
+                        yield (json.dumps(processed) + "\n").encode("utf-8")
                     except Exception as e:
-                        self.logger.error(f"Erreur lors du traitement de la ligne: {ret}. Détails de l'erreur: {e}", exc_info=True)
-                ret = ""
+                        self.logger.error(f"Erreur lors du traitement de la ligne: {line}. Détails de l'erreur: {e}", exc_info=True)
                 is_char_seq = True
                 line_perplexity = 0
                 line_length = 0
@@ -171,7 +212,9 @@ class HTREngine:
         # request_dict = await request.json()
         self.logger.info(image.filename, exc_info=True)
         request_dict = {"max_tokens": 4096*3, "logprobs": 1}
-        image_width, image_height = Image.open(BytesIO(contents)).size
+        loop = asyncio.get_event_loop()
+        image_width, image_height = await loop.run_in_executor(None, lambda: Image.open(BytesIO(contents)).size)
+        # image_width, image_height = Image.open(BytesIO(contents)).size
         # image = request_dict.pop("image", None)
         metadata = {"imageWidth": image_width, "imageHeight": image_height, "model": self.name}
         return await self.__call__(request = request, image = contents, prompt = "", metadata = metadata, request_dict = request_dict, stream = stream)
@@ -188,15 +231,21 @@ class HTREngine:
         """
         
         # stream = request_dict.pop("stream", False)
+        import time
+        t0 = time.time()
+        self.logger.info(f"[CALL START] ts={t0:.3f}")
         request_dict["temperature"] = 0.0
         generators_infos = []
         pages_params = []
         requests_ids = []
         if stream:
             background_tasks = BackgroundTasks()
-        sampling_params = SamplingParams(**request_dict)
+        guided_decoding_params = StructuredOutputsParams(regex=latin1_regex)
+        sampling_params = SamplingParams(structured_outputs=guided_decoding_params, **request_dict)
+        loop = asyncio.get_event_loop()
+        input_list = await loop.run_in_executor(None, lambda: get_inputs(image, self.engine.get_tokenizer(), PROMPT, SYSTEM))
         
-        for inputs, ratio, offset in get_inputs(image, await self.engine.get_tokenizer(), PROMPT, SYSTEM):
+        for inputs, ratio, offset in input_list:
             request_id = random_uuid()
             results_generator = self.engine.generate(
                 inputs,
@@ -250,5 +299,6 @@ class HTREngine:
                 metadata["metrics"] = {"file_perplexity": avg_file_perplexity, "char_perplexity": avg_char_perplexity}
 
             output = add_metadata(all_shapes, metadata)
+            self.logger.info(f"[CALL END] duration={time.time()-t0:.3f}s")
             return Response(content=json.dumps(output))
 
