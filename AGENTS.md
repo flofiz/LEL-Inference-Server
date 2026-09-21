@@ -49,6 +49,8 @@ Le modèle génère des lignes au format pipe : `|texte|xmin,ymin,xmax,ymax|`
 `ray.init()` est appelé dans `main.py` — ne jamais lancer `ray start --head` en parallèle.
 En cas de cluster gelé : `ray stop --force` puis redémarrer le service.
 
+Ray Serve écoute uniquement sur `127.0.0.1:8000` (loopback). Nginx gère TLS + HTTP/2 en frontal sur le port 443 et proxy vers cette adresse. Ne jamais binder Ray sur `0.0.0.0`.
+
 ### get_tokenizer()
 Dans vLLM 0.19.1, `engine.get_tokenizer()` est **synchrone** — ne pas utiliser `await`.
 
@@ -65,7 +67,9 @@ Créer `/tmp/maintenance` pour bloquer toutes les requêtes (répond 200 + Retry
 | `/home/fizainef/prometheus-3.11.2.linux-amd64/` | Prometheus, port 9090 |
 | `/home/fizainef/grafana-v11.6.1/` | Grafana, port 3000 |
 | `/tmp/ray/prom_metrics_service_discovery.json` | Targets Ray pour Prometheus (auto-généré) |
-| `/etc/nginx/nginx.conf` | Reverse proxy TLS |
+| `/etc/nginx/nginx.conf` | Config nginx HTTP/2 + TLS (`listen 443 ssl http2`) — reverse proxy vers 127.0.0.1:8000 |
+| `/home/fizainef/LLM/cert.pem` | Certificat TLS nginx |
+| `/home/fizainef/LLM/key.pem` | Clé privée TLS nginx |
 
 ## Monitoring
 

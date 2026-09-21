@@ -48,11 +48,19 @@ def crop_and_get_boxes(image, offset = 0):
     image = image[min_y:max_y, min_x:max_x]
     return image, (min_y, min_x)
 
-
-def reshape_image(image):
+# Reshape gère a la fois le reshape de l'image mais aussi les ratio 
+# pour passer de la sortie qwen a la taille d'origine
+def reshape_image(image, qwen_version="qwen25"):
     img_width, img_height = image.size
-    max_pixels = 1280*28*28
-    min_pixels = 960*28*28
+
+    if qwen_version=="qwen25":
+        patch_size = 28
+    elif qwen_version=="qwen35":
+        patch_size = 32
+    else:
+        raise Exception("ModelNotSupported","Le model doit etre qwen25 ou qwen35")
+    max_pixels = 1280*patch_size**2
+    min_pixels = 960*patch_size**2
     if img_width*img_height < min_pixels:
         ratio = min_pixels / (img_width* img_height)
     elif img_width*img_height > max_pixels:
@@ -61,10 +69,13 @@ def reshape_image(image):
         ratio = 1.0
     new_size = tuple(int(dim * sqrt(ratio)) for dim in image.size)
     # set each dimension to be a multiple of 28
-    new_size = tuple(int(dim // 28) * 28 for dim in new_size)
+    new_size = tuple(int(dim // patch_size) * patch_size for dim in new_size)
     image = image.resize(new_size, Image.LANCZOS)
     new_img_width, new_img_height = image.size
-    ratios = (new_img_width/img_width, new_img_height/img_height)
+    if qwen_version=="qwen25":
+        ratios = (new_img_width/img_width, new_img_height/img_height)
+    elif qwen_version=="qwen35":
+        ratios = (1000/img_width, 1000/img_height)
     return image, ratios
 
 def cut_image(image):
@@ -80,23 +91,23 @@ def cut_image(image):
         offsets = [0]
     return images, offsets
 
-def prepare_image(image):
+def prepare_image(image,qwen_version="qwen25"):
 
     image = image.convert('RGB')
     images,offsets = cut_image(image)
     for image, offset in zip(images,offsets):
         # image = Image.fromarray(image)
-        image, ratios = reshape_image(image)
+        image, ratios = reshape_image(image,qwen_version)
         buffered = BytesIO()
         image.save(buffered, format="JPEG")
         img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
         yield img_str, ratios, offset
 
 
-def get_inputs(image, tokenizer, PROMPT, SYSTEM):
+def get_inputs(image, tokenizer, PROMPT, SYSTEM, qwen_version="qwen25"):
     # image = Image.open(BytesIO(base64.b64decode(image)))
     image = Image.open(BytesIO(image))
-    for image_str, ratios, offset in prepare_image(image):
+    for image_str, ratios, offset in prepare_image(image,qwen_version):
         messages = [
             {
                 "role": "system",

@@ -5,14 +5,16 @@ description = "An Inference framework for LeL2.0 with support for Qwen"
 requires-python = "==3.11.11"   # évite la résolution pour 3.13/3.14
 
 dependencies = [
-  "torch==2.10.0+cu130",
-  "transformers==5.6.2",
-  "vllm==0.19.1",
+  "torch==2.13.0+cu130",
+  "transformers",
+  "vllm==0.29",
   "flash-attn",
+  "flash-linear-attention",
+  "causal_conv1d",
   "ray[default]",
   "qwen_vl_utils",
-  "torchvision==0.25.0",
-  "torchaudio==2.10.0",
+  "torchvision==0.28.0",
+  "torchaudio",
   "shapely"
 ]
 
@@ -23,21 +25,32 @@ torchaudio = { index = "pytorch-cu130" }
 
 
 [tool.uv.extra-build-dependencies]
-flash-attn = [{ requirement = "torch", match-runtime = true }]
+flash-attn             = [{ requirement = "torch", match-runtime = true }]
+flash-linear-attention = [{ requirement = "torch", match-runtime = true }]
+causal_conv1d          = [{ requirement = "torch", match-runtime = true }]
+# unsloth                = [{ requirement = "torch", match-runtime = true }]
+vllm                   = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.extra-build-variables]
-flash-attn = { FLASH_ATTENTION_SKIP_CUDA_BUILD = "FALSE" }
+flash-attn    = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0" , NVCC_APPEND_FLAGS = "-gencode arch=compute_80,code=sm_80"}
+# Pour vLLM : prend aussi en compte les flags NVCC
+vllm          = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0", NVCC_APPEND_FLAGS = "-gencode arch=compute_80,code=sm_80" }
+# Pour causal_conv1d
+causal_conv1d = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0" }
 
 [tool.uv]
+environments = ["sys_platform == 'linux'"]
 override-dependencies = [
-  "torch==2.10.0+cu130",
-  "transformers==5.6.2",
-  "vllm==0.19.1",
-  "torchvision==0.25.0+cu130",
-  "torchaudio==2.10.0",
+  "torch==2.13.0+cu130",
+  "transformers",
+  "vllm==0.29",
+  "torchvision==0.28.0+cu130",
 ]
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
+
+[tool.uv.pip]
+torch-backend = "cu130"

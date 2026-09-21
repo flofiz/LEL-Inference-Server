@@ -225,14 +225,80 @@ EOF
 
 ---
 
-## Nginx
+## Nginx (reverse proxy HTTP/2 + TLS)
 
-Config : `/etc/nginx/nginx.conf`
+Nginx se trouve devant Ray Serve et gère TLS + HTTP/2 côté client. Ray Serve reste en HTTP/1.1 sur `127.0.0.1:8000`.
+
+```
+Client (HTTPS / HTTP2)  ──→  nginx :443 (TLS terminé)  ──→  Ray Serve 127.0.0.1:8000 (HTTP/1.1)
+```
+
+### Certificats
+
+Les certificats existants sont dans `/home/fizainef/LLM/cert.pem` et `/home/fizainef/LLM/key.pem`.
+
+Pour en regénérer :
+```bash
+openssl req -x509 -newkey rsa:4096 \
+  -keyout /home/fizainef/LLM/key.pem \
+  -out /home/fizainef/LLM/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=ton-domaine.com"
+```
+
+### Config `/etc/nginx/nginx.conf`
+
+La config nginx principale se trouve dans `/etc/nginx/nginx.conf`. Le bloc HTTPS existant doit avoir `http2` dans la directive `listen` (ancienne syntaxe, nginx < 1.25.1) :
+
+```nginx
+server {
+    listen 443 ssl http2;   # http2 dans listen pour les versions < 1.25.1
+    server_name _;
+
+    ssl_certificate     /home/fizainef/LLM/cert.pem;
+    ssl_certificate_key /home/fizainef/LLM/key.pem;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://ray_backend;   # upstream 127.0.0.1:8000
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        proxy_connect_timeout 300s;
+        proxy_read_timeout    300s;
+        proxy_send_timeout    300s;
+
+        proxy_buffering off;
+        proxy_set_header X-Accel-Buffering no;
+    }
+}
+```
+
+### Appliquer la modification HTTP/2
 
 ```bash
-# Recharger après modification
+# Ajouter http2 à la directive listen (si pas déjà fait)
+sudo sed -i 's/listen 443 ssl;/listen 443 ssl http2;/' /etc/nginx/nginx.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+### Commandes utiles
+
+```bash
+# Vérifier la config
+sudo nginx -t
+
+# Recharger après modification
+sudo systemctl reload nginx
+
+# Vérifier la version (pour choisir la directive http2)
+nginx -v
+```
+
+> **Note** : `serve.start(http_options={"host": "127.0.0.1", "port": 8000})` dans `main.py` garantit que Ray n'est pas exposé directement sur le réseau.
 
 ---
 
@@ -262,3 +328,6 @@ Les logs systemd (démarrage, arrêt) sont dans le journal :
 ```bash
 journalctl -u lel --since "1 hour ago"
 ```
+
+current promete :
+To stop Prometheus, use the command: `ray metrics shutdown-prometheus`, 'kill 220892', or if you need to force stop, use 'kill -9 220892'.

@@ -47,7 +47,7 @@ class VLLMPredictDeployment:
                 msg = record.getMessage()
                 return not ("GET / 200" in msg or "GET / 404" in msg)
         logging.getLogger("ray.serve").addFilter(FilterHealthCheck())
-        self.engine = HTREngine(name = "QWEN2.5-VL-3B-01122025",**engine_kwargs)
+        self.engine = HTREngine(name = "QWEN2.5-VL-3B-27032026",**engine_kwargs)
     @app.post("/transcribe")
     async def transcribe(self, request: Request) -> Response:
         return await self.engine.transcribe(request)
@@ -79,22 +79,36 @@ if __name__ == "__main__":
         include_dashboard=True,
         dashboard_host="127.0.0.1",
     )
-    deployment = VLLMPredictDeployment.bind(
-        model="/home/fizainef/LLM/Weights/Qwen2.5-VL_GRPO",#"/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
-        max_num_seqs=90,
-        max_model_len=8192,
-        max_num_batched_tokens=16384*2,
-        dtype="bfloat16",
-        gpu_memory_utilization=0.95,
-        enable_chunked_prefill=True,
-        limit_mm_per_prompt={"image": 1}
-    )
-    # serve.start(http_options=HTTPOptions(host="0.0.0.0",
-    #                                      port=443,
-    #                                      tls_cert="/home/fizainef/LLM/cert.pem",
-    #                                      tls_key="/home/fizainef/LLM/key.pem"))
-#     serve.start(http_options={
-#     "host": "127.0.0.1",
-#     "port": 8000
-# })
+    args = {
+        "model": "/home/fizainef/Weights/Qwen3.5-4B-15092026",
+        "max_num_seqs": 90,
+        "max_model_len": 8192,
+        "max_num_batched_tokens": 16384,
+        "dtype": "bfloat16",
+        "gpu_memory_utilization": 0.95,
+        "enable_chunked_prefill": True,
+        "limit_mm_per_prompt": {
+            "image": 1,
+        },
+    }
+
+    if "Qwen3.5" in args["model"]:
+        args["speculative_config"] = {
+            "method": "mtp",
+            "num_speculative_tokens": 2,
+        }
+
+    deployment = VLLMPredictDeployment.bind(**args)
+    # deployment = VLLMPredictDeployment.bind(
+    #     model="/home/fizainef/LLM/Weights/Qwen2.5-VL_GRPO",#"/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
+    #     max_num_seqs=90,
+    #     max_model_len=8192,
+    #     max_num_batched_tokens=16384,
+    #     dtype="bfloat16",
+    #     gpu_memory_utilization=0.95,
+    #     enable_chunked_prefill=True,
+    #     limit_mm_per_prompt={"image": 1}
+    # )
+    # Ray Serve écoute uniquement sur localhost — nginx gère TLS + HTTP/2 en frontal
+    serve.start(http_options={"host": "127.0.0.1", "port": 8000})
     serve.run(deployment, blocking=True)

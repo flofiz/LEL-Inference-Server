@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+**__pycache__/
 **/__pycache__/
 *.py[cod]
 *$py.class
@@ -131,3 +132,7 @@ dmypy.json
 *~
 .DS_Store
 uv.lock
+
+data
+prometheus-3.14.0.linux-amd64
+prometheus-3.14.0.linux-amd64.tar.gz

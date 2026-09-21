@@ -8,18 +8,24 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse, Response
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
+from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
 from vllm.sampling_params import SamplingParams
 from vllm.sampling_params import StructuredOutputsParams
 from vllm.utils import random_uuid
 
 from ray import serve
 
+QWEN_VERSION = "qwen35"
 
 import time
 from processing.preprocessing import prepare_image
 from processing.postprocessing import postprocess_line, postprocess_output, add_metadata
-from templates.system.HTR import SYSTEM
-from templates.tasks.HTR import PROMPT
+if QWEN_VERSION=="qwen25":
+    from templates.system.HTR import SYSTEM
+    from templates.tasks.HTR import PROMPT
+elif QWEN_VERSION=="qwen35":
+    from templates.system.HTR import QWEN35_SYSTEM as SYSTEM
+    from templates.tasks.HTR import QWEN35_USER as PROMPT
 from PIL import Image
 from io import BytesIO
 import base64
@@ -97,7 +103,9 @@ class HTREngine:
 
         # 2. Créer l'engine (vllm va créer des loggers enfants ici)
         args = AsyncEngineArgs(**kwargs)
-        self.engine = AsyncLLMEngine.from_engine_args(args)
+        self.engine = AsyncLLMEngine.from_engine_args(
+            args, stat_loggers=[RayPrometheusStatLogger]
+        )
 
         # 3. Nettoyer tous les loggers enfants vllm.* créés pendant l'init
         #    → les laisser propager vers vllm_root (qui a notre handler)
@@ -243,7 +251,7 @@ class HTREngine:
         guided_decoding_params = StructuredOutputsParams(regex=latin1_regex)
         sampling_params = SamplingParams(structured_outputs=guided_decoding_params, **request_dict)
         loop = asyncio.get_event_loop()
-        input_list = await loop.run_in_executor(None, lambda: get_inputs(image, self.engine.get_tokenizer(), PROMPT, SYSTEM))
+        input_list = await loop.run_in_executor(None, lambda: get_inputs(image, self.engine.get_tokenizer(), PROMPT, SYSTEM, qwen_version = QWEN_VERSION))
         
         for inputs, ratio, offset in input_list:
             request_id = random_uuid()
