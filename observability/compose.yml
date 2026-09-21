@@ -1,0 +1,47 @@
+services:
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: lellray-prometheus
+
+    network_mode: host
+
+    restart: unless-stopped
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.listen-address=127.0.0.1:9090"
+
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    container_name: lellray-grafana
+
+    network_mode: host
+
+    restart: unless-stopped
+
+    environment:
+      GF_SERVER_HTTP_ADDR: "127.0.0.1"
+      GF_SERVER_HTTP_PORT: "3000"
+
+
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+
+volumes:
+  prometheus_data:
+  grafana_data:
