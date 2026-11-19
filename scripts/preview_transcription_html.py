@@ -100,7 +100,7 @@ main { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); fl
 .fragment > h2 { margin: 0 0 9px; font-size: 14px; font-weight: 600; color: #4d5660; }
 .fragment-body { overflow: auto; color: #27231d; font: 17px/1.5 Georgia, "Times New Roman", serif; }
 .fragment-body p { margin: .6em 0; }
-.fragment-body p > span[data-segment] { display: block; }
+.fragment-body span + span::before { content: " "; }
 .fragment-body h1, .fragment-body h2, .fragment-body h3,
 .fragment-body h4, .fragment-body h5, .fragment-body h6 { margin: .7em 0 .3em; color: #423725; }
 .fragment-body aside { margin: .65em 0; padding: .4em .75em; border-left: 3px solid #8c63c6;
@@ -118,6 +118,22 @@ thead, tfoot { background: #f0e7d5; }
 .transcript [data-segment].active { background: #ffea8a; outline: 1px solid #d18c0c; }
 @media (max-width: 720px) {
     main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 52fr) minmax(0, 48fr); }
+}
+@page { size: A4 portrait; margin: 12mm; }
+@media print {
+    body, main { display: block; height: auto; background: white; }
+    .bar, .scan { display: none; }
+    .transcript, .fragment-body { overflow: visible; padding: 0; }
+    .fragment { border: 0; padding: 0; margin: 0; background: white; }
+    .fragment + .fragment { break-before: page; }
+    .fragment > h2 { break-after: avoid; }
+    .fragment-body { font-size: 11pt; overflow-wrap: anywhere; }
+    .fragment-body table { width: 100%; min-width: 0; font-size: 8pt; }
+    .fragment-body thead { display: table-header-group; }
+    .fragment-body tfoot { display: table-row-group; }
+    .fragment-body tr { break-inside: avoid; }
+    .fragment-body th, .fragment-body td { min-width: 0; padding: 2px; }
+    .transcript [data-segment].active { background: transparent; outline: none; }
 }
 """
 
@@ -160,6 +176,7 @@ document.querySelector("main").addEventListener("click", event => {
         if (element !== target) element.scrollIntoView({block: "center", inline: "center"});
 });
 overlay.addEventListener("change", () => scan.classList.toggle("hide-boxes", !overlay.checked));
+document.querySelector("#print").addEventListener("click", () => window.print());
 function fitImage() {
     const {width, height} = scan.getBoundingClientRect();
     const image = svg.viewBox.baseVal;
@@ -235,6 +252,7 @@ def render_shell(width, height, image_url, fragments, boxes, total):
 <div class="controls">
 <label><input id="overlay" type="checkbox" checked>Afficher les segments</label>
 <label title="100 % affiche l’image entière"><input id="zoom" type="range" min="100" max="350" step="10" value="100" aria-label="Zoom"> <output id="zoom-value">100%</output></label>
+<button id="print" type="button">PDF A4</button>
 </div><span id="status">Cliquez sur un segment pour le retrouver.</span></header>
 <main><div class="scan"><svg viewBox="0 0 {width} {height}" aria-label="Image originale et segments">
 <image href="{image_url}" width="{width}" height="{height}"/>

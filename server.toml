@@ -1,0 +1,12 @@
+[engine]
+model = "/home/fizainef/Weights/Qwen3.5-4B-c400-wsp-hybrid-60-50"
+max_num_seqs = 90
+max_model_len = 24576
+max_num_batched_tokens = 16384
+dtype = "bfloat16"
+gpu_memory_utilization = 0.95
+enable_chunked_prefill = true
+limit_mm_per_prompt = { image = 1 }
+require_rswa = true
+mtp_tokens = 3
+enable_thinking = false

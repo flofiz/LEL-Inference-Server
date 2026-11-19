@@ -3,14 +3,15 @@ const allowedTags = new Set("p h1 h2 h3 h4 h5 h6 span table caption thead tbody 
 const tagTypes = {aside: "aside", signature: "signature", page_number: "page-number", table: "table",
     h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading"};
 
-async function openPortableTranscription(file) {
+async function openPortableTranscription(file, signal) {
     const form = new FormData();
     form.append("image", file);
     let response;
     try {
         const endpoint = location.origin === new URL(publicStream).origin ? new URL(publicStream).pathname : publicStream;
-        response = await fetch(endpoint, {method: "POST", body: form, credentials: "omit"});
-    } catch {
+        response = await fetch(endpoint, {method: "POST", body: form, credentials: "omit", signal});
+    } catch (error) {
+        if (signal?.aborted) throw error;
         throw new Error("Impossible de lire le serveur public. Depuis un fichier local, essayez « Ouvrir la démo en ligne ».");
     }
     if (!response.ok) throw new Error(`Le serveur a répondu HTTP ${response.status}.`);

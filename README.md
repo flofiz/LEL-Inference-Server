@@ -143,7 +143,19 @@ Utiliser directement le Python du venv (comme dans systemd). Lancé via
 `uv run`, Ray peut réexécuter `uv run` pour ses workers depuis un autre
 répertoire et créer un venv sans les dépendances du serveur.
 
-Le chemin peut être remplacé avec `HTR_MODEL_PATH`. RSWA est obligatoire par
+Les réglages de démarrage sont dans [`server.toml`](server.toml). Pour modifier
+uniquement le chemin sur une machine, créer `server.local.toml` à la racine
+(ignoré par Git) :
+
+```toml
+[engine]
+model = "/chemin/absolu/du/checkpoint"
+```
+
+Les clés locales remplacent les clés de défaut. `HTR_CONFIG_PATH` peut pointer
+vers un autre fichier de surcharge, par exemple sous `/etc`, et les variables
+existantes (`HTR_MODEL_PATH`, `HTR_MTP_TOKENS`, etc.) restent prioritaires.
+Redémarrer le service après changement. RSWA est obligatoire par
 défaut : un manifeste incomplet ou absent, un patch absent ou un cache
 incompatible fait échouer l'initialisation du réplica, sans repli en full
 attention. Pour servir volontairement un checkpoint standard, définir aussi
@@ -284,6 +296,11 @@ les segments et la transcription apparaissent au fil des morceaux reçus.
 Le navigateur ferme provisoirement les balises ouvertes (par exemple un
 tableau, à compléter au prochain morceau). À la fin, l'aperçu peut toujours
 être téléchargé pour une présentation hors ligne.
+L'import accepte plusieurs images à la fois, avec quatre requêtes simultanées
+au maximum côté client. La barre de miniatures à gauche sert à changer
+d'image, à en ajouter (`+`), et à fermer une image (`×`), les images cochées
+ou toutes les images. **PDF A4** ouvre la boîte d'impression du navigateur
+pour la transcription de l'onglet actif, sans le scan ni les overlays.
 
 Pour partager la démo sans Python, privilégier
 [`https://lel.cotedor.fr/demo`](https://lel.cotedor.fr/demo) : la page et l'API
@@ -298,7 +315,7 @@ servi par `/demo`.
 
 ## Modèle
 
-- **Checkpoint par défaut** : `/home/fizainef/Weights/Qwen3.5-4B-06112026-sft-html-convert-rswa-w512_grpo`
+- **Checkpoint par défaut** : `/home/fizainef/Weights/Qwen3.5-4B-c400-wsp-hybrid-60-50`
 - **Sorties disponibles** : TSV converti en polygones ou HTML par fragment.
 
 ### Ancien checkpoint Qwen2.5 (historique)
@@ -315,7 +332,7 @@ servi par `/demo`.
     --out Weights/Qwen2.5-VL_GRPO
   ```
 
-### Paramètres vLLM (`main.py`)
+### Paramètres vLLM (`server.toml`)
 
 | Paramètre | Valeur |
 |-----------|--------|

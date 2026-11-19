@@ -2,6 +2,14 @@
 
 Ce guide compare le **dépôt** avant l'intervention (`e9c81e5`) et après la livraison de la démo publique (`f5447e9`, branche `feat/rswa`). Il ne prétend pas reconstruire d'éventuelles modifications locales non commitées sur le serveur d'origine.
 
+**Configuration actuelle** : depuis cette livraison, les valeurs de démarrage
+ont été déplacées dans [`server.toml`](../server.toml). Le modèle par défaut
+est maintenant `Qwen3.5-4B-c400-wsp-hybrid-60-50`. Pour une modification
+propre à un hôte, utiliser `server.local.toml` (ignoré par Git) ou
+`HTR_CONFIG_PATH` ; les variables `HTR_*` historiques restent prioritaires.
+Les chemins de poids et mesures ci-dessous décrivent le checkpoint de référence
+de la livraison `f5447e9`, pas un benchmark du nouveau checkpoint.
+
 ## 1. Voir précisément ce qui a changé
 
 ```bash

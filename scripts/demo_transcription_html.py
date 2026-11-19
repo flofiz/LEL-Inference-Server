@@ -128,7 +128,7 @@ class DemoHandler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             pass
 
     def do_GET(self):
@@ -183,7 +183,7 @@ class DemoHandler(BaseHTTPRequestHandler):
                     self.write_event(item)
             except DemoError as exc:
                 self.write_event({"type": "error", "message": str(exc)})
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             pass
         finally:
             with_events.close()

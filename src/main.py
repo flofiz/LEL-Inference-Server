@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from inference.engine import HTREngine
-from processing.html_output import HTML_CONTEXT_LENGTH
+from server_config import load_engine_args
 from ray.serve.config import HTTPOptions
 
 MAINTENANCE_FILE = "/tmp/maintenance"
@@ -100,43 +100,14 @@ class VLLMPredictDeployment:
     
 if __name__ == "__main__":
     import ray
+
+    args = load_engine_args()
     ray.init(
         _metrics_export_port=8080,
         include_dashboard=True,
         dashboard_host="127.0.0.1",
     )
-    args = {
-        "model": os.getenv(
-            "HTR_MODEL_PATH",
-            "/home/fizainef/Weights/Qwen3.5-4B-06112026-sft-html-convert-rswa-w512_grpo",
-        ),
-        "max_num_seqs": 90,
-        "max_model_len": HTML_CONTEXT_LENGTH,
-        "max_num_batched_tokens": 16384,
-        "dtype": "bfloat16",
-        "gpu_memory_utilization": 0.95,
-        "enable_chunked_prefill": True,
-        "limit_mm_per_prompt": {
-            "image": 1,
-        },
-    }
-
-    args["standard_mtp"] = "Qwen3.5" in args["model"]
-    args["require_rswa"] = os.getenv("HTR_REQUIRE_RSWA") != "0"
-    args["mtp_tokens"] = int(os.getenv("HTR_MTP_TOKENS", "3"))
-    args["enable_thinking"] = os.getenv("HTR_ENABLE_THINKING") == "1"
-
     deployment = VLLMPredictDeployment.bind(**args)
-    # deployment = VLLMPredictDeployment.bind(
-    #     model="/home/fizainef/LLM/Weights/Qwen2.5-VL_GRPO",#"/home/fizainef/LLM/Weights/Qwen2-5-VL-3B-GRPO-TSV",
-    #     max_num_seqs=90,
-    #     max_model_len=8192,
-    #     max_num_batched_tokens=16384,
-    #     dtype="bfloat16",
-    #     gpu_memory_utilization=0.95,
-    #     enable_chunked_prefill=True,
-    #     limit_mm_per_prompt={"image": 1}
-    # )
     # Ray Serve écoute uniquement sur localhost — nginx gère TLS + HTTP/2 en frontal
     serve.start(http_options={"host": "127.0.0.1", "port": 8000})
     serve.run(deployment, blocking=True)
