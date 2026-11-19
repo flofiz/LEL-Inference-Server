@@ -131,8 +131,12 @@ Pour démarrer Ray Serve avec ce checkpoint local :
 
 ```bash
 HTR_MODEL_PATH=/chemin/checkpoint-rswa HTR_REQUIRE_RSWA=1 \
-  uv run --no-sync python src/main.py
+  .venv/bin/python src/main.py
 ```
+
+Utiliser directement le Python du venv (comme dans systemd). Lancé via
+`uv run`, Ray peut réexécuter `uv run` pour ses workers depuis un autre
+répertoire et créer un venv sans les dépendances du serveur.
 
 `HTR_REQUIRE_RSWA=1` empêche de démarrer si le chemin désigne par erreur un
 modèle standard. Un manifeste incomplet, un patch absent ou un cache incompatible
