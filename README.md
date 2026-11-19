@@ -127,20 +127,21 @@ La sortie brute n'est pas enregistrée par défaut. Pour la conserver, ajouter
 `HTR_RSWA_TEST_OUTPUT=./rswa-generation.txt` devant la commande. Ce texte peut
 se répéter après la fin naturelle de la transcription : le test ignore EOS.
 
-Pour démarrer Ray Serve avec ce checkpoint local :
+Pour démarrer Ray Serve avec le checkpoint RSWA par défaut :
 
 ```bash
-HTR_MODEL_PATH=/chemin/checkpoint-rswa HTR_REQUIRE_RSWA=1 \
-  .venv/bin/python src/main.py
+.venv/bin/python src/main.py
 ```
 
 Utiliser directement le Python du venv (comme dans systemd). Lancé via
 `uv run`, Ray peut réexécuter `uv run` pour ses workers depuis un autre
 répertoire et créer un venv sans les dépendances du serveur.
 
-`HTR_REQUIRE_RSWA=1` empêche de démarrer si le chemin désigne par erreur un
-modèle standard. Un manifeste incomplet, un patch absent ou un cache incompatible
-fait échouer l'initialisation du réplica, sans repli en full attention.
+Le chemin peut être remplacé avec `HTR_MODEL_PATH`. RSWA est obligatoire par
+défaut : un manifeste incomplet ou absent, un patch absent ou un cache
+incompatible fait échouer l'initialisation du réplica, sans repli en full
+attention. Pour servir volontairement un checkpoint standard, définir aussi
+`HTR_REQUIRE_RSWA=0`.
 
 ### Thinking Qwen3.5
 

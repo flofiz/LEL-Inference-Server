@@ -93,7 +93,10 @@ if __name__ == "__main__":
         dashboard_host="127.0.0.1",
     )
     args = {
-        "model": os.getenv("HTR_MODEL_PATH", "/home/fizainef/Weights/Qwen3.5-4B-15092026"),
+        "model": os.getenv(
+            "HTR_MODEL_PATH",
+            "/home/fizainef/Weights/Qwen3.5-4B-06112026-sft-html-convert-rswa-w512_grpo",
+        ),
         "max_num_seqs": 90,
         "max_model_len": HTML_CONTEXT_LENGTH,
         "max_num_batched_tokens": 16384,
@@ -106,7 +109,7 @@ if __name__ == "__main__":
     }
 
     args["standard_mtp"] = "Qwen3.5" in args["model"]
-    args["require_rswa"] = os.getenv("HTR_REQUIRE_RSWA") == "1"
+    args["require_rswa"] = os.getenv("HTR_REQUIRE_RSWA") != "0"
     args["enable_thinking"] = os.getenv("HTR_ENABLE_THINKING") == "1"
 
     deployment = VLLMPredictDeployment.bind(**args)
