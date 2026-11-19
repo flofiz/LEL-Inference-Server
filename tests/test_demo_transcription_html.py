@@ -60,3 +60,21 @@ def test_demo_posts_image_and_renders_partial_tables(demo, monkeypatch):
     assert final["fragment"].endswith("</td></tr></table>")
     assert "onclick" not in complete["html"]
     assert not complete["hasErrors"]
+
+
+def test_overlay_keeps_the_semantic_type_of_nested_segments(demo):
+    from preview_transcription_html import render_page
+
+    page = {"offsetX": 0, "width": 100, "height": 100, "html": (
+        '<aside><span coord="1,2,3,4,0">Note</span></aside>'
+        '<signature coord="5,6,7,8,0">Signature</signature>'
+        '<page_number coord="9,10,11,12,0">7</page_number>'
+        '<table><tr><td><span coord="13,14,15,16,0">Cellule</span></td></tr></table>'
+        '<p coord="17,18,19,20,0">Texte</p>'
+    )}
+    overlay = render_page(page, 0)["boxes"]
+    assert 'tag-aside" data-segment="1-1"' in overlay
+    assert 'tag-signature" data-segment="1-2"' in overlay
+    assert 'tag-page-number" data-segment="1-3"' in overlay
+    assert 'tag-table" data-segment="1-4"' in overlay
+    assert 'class="box page-1" data-segment="1-5"' in overlay

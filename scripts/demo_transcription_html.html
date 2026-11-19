@@ -24,7 +24,19 @@
     #run { color: #fff; background: #075d74; border-color: #075d74; }
     button:disabled { opacity: .55; cursor: not-allowed; }
     button:focus-visible, a:focus-visible { outline: 3px solid #16a6c0; outline-offset: 2px; }
-    iframe { flex: 1 1 auto; width: 100%; min-height: 60vh; border: 0; background: #eef2f7; }
+    .compact-label { display: none; }
+    iframe { flex: 1 1 0; width: 100%; min-height: 0; border: 0; background: #eef2f7; }
+    .viewing { height: 100dvh; overflow: hidden; }
+    .viewing > header, .viewing #drop strong, .viewing #thumb,
+    .viewing .upload-label, .viewing:not(.can-retry) #run { display: none; }
+    .viewing .compact-label { display: inline; }
+    .viewing .workspace { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap;
+        gap: 4px 10px; padding: 5px 10px; font-size: 13px; }
+    .viewing #drop { display: block; min-height: 0; border: 0; padding: 0; }
+    .viewing .selection { gap: 8px; }
+    .viewing #filename { max-width: min(30vw, 280px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .viewing .status { margin-left: auto; }
+    .viewing button, .viewing a.action { padding: 4px 8px; }
     @media (max-width: 630px) { .workspace { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -37,7 +49,7 @@
     <div id="drop">
         <strong>Déposez une image ici</strong>
         <input id="file" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-        <button id="choose" type="button">Importer depuis mes fichiers</button>
+        <button id="choose" type="button"><span class="upload-label">Importer depuis mes fichiers</span><span class="compact-label">Nouvelle image</span></button>
     </div>
     <div class="selection">
         <img id="thumb" alt="Image sélectionnée" hidden>
@@ -71,6 +83,7 @@
 
     function clearResult() {
         result.hidden = true;
+        document.body.classList.remove("viewing", "can-retry");
         result.removeAttribute("srcdoc");
         save.hidden = true;
         save.removeAttribute("href");
@@ -92,6 +105,7 @@
         thumb.src = thumbUrl;
         thumb.hidden = false;
         filename.textContent = file.name;
+        filename.title = file.name;
         run.disabled = false;
         message("Image prête. Cliquez sur Transcrire pour l’envoyer à lel.cotedor.fr.");
     }
@@ -141,7 +155,7 @@
         busy = run.disabled = choose.disabled = true;
         const started = performance.now();
         const elapsed = () => Math.floor((performance.now() - started) / 1000);
-        const pending = () => message(`Transcription en cours · ${elapsed()} s. Une double page peut prendre plusieurs minutes.`);
+        const pending = () => message(`Transcription en cours · ${elapsed()} s`);
         pending();
         const timer = setInterval(pending, 1000);
         try {
@@ -157,6 +171,7 @@
                     const loaded = new Promise(resolve => result.addEventListener("load", resolve, {once: true}));
                     result.srcdoc = item.html;
                     result.hidden = false;
+                    document.body.classList.add("viewing");
                     await loaded;
                 } else if (item.type === "page") {
                     result.contentWindow.postMessage(item, "*");
@@ -166,6 +181,7 @@
                     save.href = downloadUrl;
                     save.download = selected.file.name.replace(/\.[^.]+$/, "") + "-transcription.html";
                     save.hidden = false;
+                    document.body.classList.toggle("can-retry", item.hasErrors);
                     message(item.hasErrors ? "Transcription partielle : un fragment a échoué."
                                            : `Transcription terminée en ${elapsed()} s.`, item.hasErrors);
                 } else if (item.type === "error") {
@@ -174,6 +190,7 @@
             });
             if (!complete) throw new Error("Le flux de transcription a été interrompu.");
         } catch (error) {
+            document.body.classList.add("can-retry");
             message(error.message || "La transcription a échoué.", true);
         } finally {
             clearInterval(timer);

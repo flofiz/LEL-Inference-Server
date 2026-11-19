@@ -15,15 +15,22 @@ class Fragment(HTMLParser):
         "p h1 h2 h3 h4 h5 h6 span table caption thead tbody tfoot tr th td "
         "aside signature page_number del br em strong i b sub sup".split()
     )
+    categories = {
+        "aside": "aside", "signature": "signature", "page_number": "page-number",
+        "table": "table", **{f"h{level}": "heading" for level in range(1, 7)},
+    }
 
     def __init__(self, page, number):
         super().__init__()
         self.page, self.number = page, number
         self.parts, self.boxes = [], []
+        self.context = []
 
     def handle_starttag(self, tag, attrs):
         if tag not in self.tags:
             return
+        if tag in self.categories:
+            self.context.append(tag)
         attrs = dict(attrs)
         safe = {}
         for key in ("colspan", "rowspan"):
@@ -41,8 +48,9 @@ class Fragment(HTMLParser):
                 safe["data-segment"] = segment
                 w, h = self.page["width"] / 1000, self.page["height"] / 1000
                 x, y = self.page["offsetX"] + x1 * w, y1 * h
+                category = f" tag-{self.categories[self.context[-1]]}" if self.context else ""
                 self.boxes.append(
-                    f'<rect class="box page-{self.number % 2}" data-segment="{segment}" '
+                    f'<rect class="box page-{self.number % 2}{category}" data-segment="{segment}" '
                     f'x="{x:.2f}" y="{y:.2f}" width="{(x2 - x1) * w:.2f}" '
                     f'height="{(y2 - y1) * h:.2f}" vector-effect="non-scaling-stroke">'
                     f'<title>Fragment {self.number}, segment {index}, angle {angle}°</title></rect>'
@@ -51,6 +59,9 @@ class Fragment(HTMLParser):
         self.parts.append(f"<{tag}{attributes}>")
 
     def handle_endtag(self, tag):
+        if tag in self.context:
+            last = len(self.context) - 1 - self.context[::-1].index(tag)
+            del self.context[last:]
         if tag in self.tags and tag != "br":
             self.parts.append(f"</{tag}>")
 
@@ -64,35 +75,56 @@ class Fragment(HTMLParser):
 
 STYLE = """
 * { box-sizing: border-box; }
-body { margin: 0; color: #263447; background: #eef1f6; font: 15px system-ui, sans-serif; }
-.bar { background: #fff; padding: 14px 20px; border-bottom: 1px solid #cbd5e0; }
-h1 { margin: 0; font-size: 22px; }
-.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; margin-top: 9px; }
-label { display: inline-flex; align-items: center; gap: 7px; }
-#status { color: #475a70; }
-main { display: grid; grid-template-columns: 56% 44%; height: calc(100dvh - 96px); }
-.scan { background: #293447; overflow: auto; }
-.scan svg { display: block; width: 100%; height: auto; }
-.box { fill: #28e0fc22; stroke: #05daf5; stroke-width: 1.1; cursor: pointer; }
-.box.page-0 { fill: #ffba4b23; stroke: #ffb346; }
+body { margin: 0; height: 100dvh; display: flex; flex-direction: column;
+    color: #242e38; background: #f1ede5; font: 14px system-ui, sans-serif; }
+.bar, .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.bar { background: #fffaf2; padding: 6px 12px; border-bottom: 1px solid #d8ccb7; }
+.bar h1 { margin: 0; font-size: 14px; white-space: nowrap; }
+.bar label { display: inline-flex; align-items: center; gap: 5px; }
+#zoom { width: 85px; }
+#status { flex: 1 1 140px; min-width: 0; color: #516074; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+main { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); flex: 1; min-height: 0; }
+.scan { background: #28323e; overflow: auto; min-height: 0; }
+.scan svg { display: block; height: auto; margin-inline: auto; }
+.box { fill: #28e0fc18; stroke: #05daf5; stroke-width: 1.1; cursor: pointer; }
+.box.page-0 { fill: #ffba4b20; stroke: #ffb346; }
+.box.tag-table { fill: #47be8c18; stroke: #2dcb96; }
+.box.tag-aside { fill: #ad7bff29; stroke: #b78cff; }
+.box.tag-signature { fill: #f57a7a22; stroke: #fa8a80; }
+.box.tag-page-number { fill: #c4ccd629; stroke: #d9e1eb; }
+.box.tag-heading { fill: #e9cc5a24; stroke: #e8c75d; }
 .box.active { fill: #ffed3990; stroke: #fff423; stroke-width: 3; }
 .hide-boxes .box { visibility: hidden; }
-.transcript { min-width: 0; overflow: auto; padding: 15px; }
-.fragment { background: white; border: 1px solid #d5dde7; border-radius: 8px; margin-bottom: 16px; padding: 14px; }
-h2 { margin: 0 0 9px; font-size: 17px; }
-.fragment div { overflow: auto; }
-page_number, signature, aside { display: block; margin: 0.5em 0; }
-table { border-collapse: collapse; width: max-content; max-width: 100%; margin: 9px 0; }
-td, th { border: 1px solid #cbd5e0; padding: 3px 5px; min-width: 12px; }
-thead, tfoot { background: #edf4f9; }
+.transcript { min-width: 0; overflow: auto; padding: 10px; }
+.fragment { background: #fffdf8; border: 1px solid #ded3be; border-radius: 8px; margin-bottom: 10px; padding: 12px; }
+.fragment > h2 { margin: 0 0 9px; font-size: 14px; font-weight: 600; color: #4d5660; }
+.fragment-body { overflow: auto; color: #27231d; font: 17px/1.5 Georgia, "Times New Roman", serif; }
+.fragment-body p { margin: .6em 0; }
+.fragment-body p > span[data-segment] { display: block; }
+.fragment-body h1, .fragment-body h2, .fragment-body h3,
+.fragment-body h4, .fragment-body h5, .fragment-body h6 { margin: .7em 0 .3em; color: #423725; }
+.fragment-body aside { margin: .65em 0; padding: .4em .75em; border-left: 3px solid #8c63c6;
+    background: #f3ecfc; color: #533875; font-style: italic; }
+.fragment-body signature { display: block; margin: .65em 0; padding: .25em .6em;
+    border-top: 1px dashed #d7a6a0; color: #772f2a; text-align: right; font-style: italic; font-weight: 600; }
+.fragment-body page_number { display: inline-block; margin: .25em 0; padding: 1px 7px;
+    border: 1px solid #ded7c9; border-radius: 5px; color: #515b69; background: #f2eee6;
+    font: 12px/1.5 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.fragment-body del { color: #75665c; text-decoration-thickness: 1.5px; }
+table { border-collapse: collapse; width: max-content; min-width: 100%; margin: 8px 0; font-size: 15px; line-height: 1.4; }
+td, th { border: 1px solid #d5c7ad; padding: 3px 5px; min-width: 12px; vertical-align: top; }
+thead, tfoot { background: #f0e7d5; }
 [data-segment] { cursor: pointer; }
 .transcript [data-segment].active { background: #ffea8a; outline: 1px solid #d18c0c; }
-@media (max-width: 850px) { main { display: block; height: auto; } .scan { max-height: 61vh; } }
+@media (max-width: 720px) {
+    main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 52fr) minmax(0, 48fr); }
+}
 """
 
 SCRIPT = """
 const overlay = document.querySelector("#overlay");
 const scan = document.querySelector(".scan");
+const svg = scan.querySelector("svg");
 const zoom = document.querySelector("#zoom");
 const pairs = new Map();
 function indexSegments() {
@@ -128,10 +160,18 @@ document.querySelector("main").addEventListener("click", event => {
         if (element !== target) element.scrollIntoView({block: "center", inline: "center"});
 });
 overlay.addEventListener("change", () => scan.classList.toggle("hide-boxes", !overlay.checked));
-zoom.addEventListener("input", () => {
-    scan.querySelector("svg").style.width = zoom.value + "%";
+function fitImage() {
+    const {width, height} = scan.getBoundingClientRect();
+    const image = svg.viewBox.baseVal;
+    if (image.width && image.height) {
+        const fittedWidth = Math.min(width, height * image.width / image.height);
+        svg.style.width = fittedWidth * Number(zoom.value) / 100 + "px";
+    }
     document.querySelector("#zoom-value").textContent = zoom.value + "%";
-});
+}
+zoom.addEventListener("input", fitImage);
+new ResizeObserver(fitImage).observe(scan);
+fitImage();
 window.addEventListener("message", event => {
     if (window.parent === window || event.source !== window.parent || event.data?.type !== "page") return;
     const {pageIndex, fragment, boxes, segmentCount, finishReason} = event.data;
@@ -190,9 +230,8 @@ def render(report, image, image_mime="image/jpeg"):
 <body><header class="bar"><h1>Image et transcription · <span id="segment-count">{total}</span> segments</h1>
 <div class="controls">
 <label><input id="overlay" type="checkbox" checked>Afficher les segments</label>
-<label>Zoom <input id="zoom" type="range" min="100" max="350" step="10" value="100"> <output id="zoom-value">100%</output></label>
-<span id="status">Cliquez sur un segment pour le retrouver dans l'autre volet.</span>
-</div></header>
+<label title="100 % affiche l’image entière"><input id="zoom" type="range" min="100" max="350" step="10" value="100" aria-label="Zoom"> <output id="zoom-value">100%</output></label>
+</div><span id="status">Cliquez sur un segment pour le retrouver.</span></header>
 <main><div class="scan"><svg viewBox="0 0 {width} {height}" aria-label="Image originale et segments">
 <image href="{image_url}" width="{width}" height="{height}"/>
 {"".join(boxes)}</svg></div><div class="transcript">{"".join(fragments)}</div></main>
