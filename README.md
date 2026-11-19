@@ -296,8 +296,9 @@ les segments et la transcription apparaissent au fil des morceaux reçus.
 Le navigateur ferme provisoirement les balises ouvertes (par exemple un
 tableau, à compléter au prochain morceau). À la fin, l'aperçu peut toujours
 être téléchargé pour une présentation hors ligne.
-L'import accepte plusieurs images à la fois, avec quatre requêtes simultanées
-au maximum côté client. La barre de miniatures à gauche sert à changer
+L'import accepte plusieurs images à la fois, avec 128 requêtes simultanées
+au maximum côté client. Une double page peut déclencher deux générations ;
+le GPU peut en mettre une partie en attente. La barre de miniatures à gauche sert à changer
 d'image, à en ajouter (`+`), et à fermer une image (`×`), les images cochées
 ou toutes les images. **PDF A4** ouvre la boîte d'impression du navigateur
 pour la transcription de l'onglet actif, sans le scan ni les overlays.
@@ -310,6 +311,24 @@ depuis le disque et que le proxy bloque l'accès à l'API, cliquer sur **Ouvrir
 la démo en ligne**. Après une modification de l'interface,
 `python scripts/build_portable_demo.py` reconstruit le fichier à partager et
 servi par `/demo`.
+
+### Benchmark HTTP par paliers
+
+Sur l'A40, avec le service lancé et sans autre charge de production :
+
+```bash
+.venv/bin/python scripts/benchmark_html_http.py \
+  --image ../FRAD021_10M106_05_0004.jpg --output rswa-http-benchmark.json \
+  --levels 1 4 8 16 32 48 64 96 128
+```
+
+Le script appelle `127.0.0.1:8000` par défaut, sans navigateur ni proxy. Il
+mesure le temps jusqu'au premier morceau HTML, la durée totale et les nombres
+d'images et de fragments terminés. Il arrête l'escalade et annule les requêtes
+restantes au premier échec ou dépassement de délai (30 s jusqu'au premier
+delta, 600 s par image, modifiables). Utiliser `journalctl -fu lel` et
+`nvidia-smi -l 1` côté A40 pour expliquer une saturation. `--public` ajoute
+le passage par le proxy HTTPS ; ne l'utiliser qu'en créneau de test convenu.
 
 ---
 
@@ -365,7 +384,7 @@ serve.run(VLLMPredictDeployment.bind(...), blocking=True)
 
 Le déploiement `VLLMPredictDeployment` est configuré avec :
 - `num_gpus=1` (1 GPU par replica)
-- `max_ongoing_requests=100`
+- `max_ongoing_requests=128` (plafond Ray par réplica, distinct des `max_num_seqs=90` de vLLM)
 
 ---
 

@@ -228,8 +228,11 @@ function portableEvents(file, display) {
     if (location.protocol === "file:") document.querySelector("#online").hidden = false;
     const mimeByExtension = {jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp"};
     const jobs = new Set();
-    const parallelLimit = 4;
+    const parallelLimit = 128;
     let selected;
+    let mounted;
+    let downloadUrl;
+    let downloadable;
     let running = 0;
 
     function message(text, error = false) {
@@ -241,22 +244,54 @@ function portableEvents(file, display) {
         document.body.classList.toggle("viewing", Boolean(selected));
         documents.hidden = !selected;
         closeSelected.disabled = ![...jobs].some(job => job.checkbox.checked);
+        if (mounted && mounted !== selected) {
+            mounted.frame.remove();
+            mounted.frame = null;
+            mounted.frameReady = false;
+            mounted = null;
+        }
+        if (selected && !mounted && (selected.preview || selected.exportHtml)) {
+            mountViewer(selected);
+        }
         for (const job of jobs) {
-            job.frame.hidden = job !== selected || !job.preview;
             job.tab.classList.toggle("current", job === selected);
             if (job === selected) job.tab.setAttribute("aria-current", "true");
             else job.tab.removeAttribute("aria-current");
         }
-        waiting.hidden = Boolean(selected?.preview);
+        waiting.hidden = Boolean(mounted);
         waiting.textContent = selected?.label || "";
         filename.textContent = filename.title = selected?.file.name || "Aucune image sélectionnée";
-        save.hidden = !selected?.downloadUrl;
-        if (selected?.downloadUrl) {
-            save.href = selected.downloadUrl;
+        if (downloadable !== (selected?.exportHtml ? selected : null)) {
+            if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+            downloadable = selected?.exportHtml ? selected : null;
+            downloadUrl = downloadable ? URL.createObjectURL(
+                new Blob([downloadable.exportHtml], {type: "text/html;charset=utf-8"})) : null;
+        }
+        save.hidden = !downloadUrl;
+        if (downloadUrl) {
+            save.href = downloadUrl;
             save.download = selected.file.name.replace(/\.[^.]+$/, "") + "-transcription.html";
         } else save.removeAttribute("href");
         message(selected?.label || "JPEG, PNG ou WebP. Les images choisies seront envoyées à lel.cotedor.fr.",
             selected?.error);
+    }
+
+    function mountViewer(job) {
+        const frame = document.createElement("iframe");
+        frame.title = job.file.name;
+        frame.setAttribute("sandbox", "allow-scripts allow-modals");
+        const useFinal = Boolean(job.exportHtml);
+        job.frame = frame;
+        mounted = job;
+        frame.addEventListener("load", () => {
+            if (job.frame !== frame) return;
+            job.frameReady = true;
+            if (!useFinal) {
+                for (const update of job.pages.values()) frame.contentWindow.postMessage(update, "*");
+            }
+        }, {once: true});
+        frame.srcdoc = job.exportHtml || job.preview;
+        document.querySelector("#viewers").append(frame);
     }
 
     function closeJobs(toClose) {
@@ -264,9 +299,8 @@ function portableEvents(file, display) {
             jobs.delete(job);
             job.controller.abort();
             job.row.remove();
-            job.frame.remove();
+            job.frame?.remove();
             URL.revokeObjectURL(job.thumbUrl);
-            if (job.downloadUrl) URL.revokeObjectURL(job.downloadUrl);
         }
         if (!jobs.has(selected)) selected = jobs.values().next().value;
         refresh();
@@ -281,7 +315,7 @@ function portableEvents(file, display) {
                 rejected = true;
                 continue;
             }
-            const job = {file, mime: mimeByExtension[ext], label: "En attente", started: false,
+            const job = {file, mime: mimeByExtension[ext], label: "En attente", started: false, pages: new Map(),
                 controller: new AbortController(), thumbUrl: URL.createObjectURL(file)};
             const row = job.row = document.createElement("div");
             row.className = "tab-row";
@@ -305,11 +339,6 @@ function portableEvents(file, display) {
             close.setAttribute("aria-label", `Fermer ${file.name}`);
             close.onclick = () => closeJobs([job]);
             row.append(checkbox, tab, close);
-            const frame = job.frame = document.createElement("iframe");
-            frame.title = file.name;
-            frame.setAttribute("sandbox", "allow-scripts allow-modals");
-            frame.hidden = true;
-            document.querySelector("#viewers").append(frame);
             tabs.append(row);
             jobs.add(job);
             first ??= job;
@@ -399,22 +428,16 @@ function portableEvents(file, display) {
             async function display(item) {
                 signal.throwIfAborted();
                 if (item.type === "preview") {
-                    const frame = job.frame;
-                    await new Promise((resolve, reject) => {
-                        const loaded = () => { signal.removeEventListener("abort", abort); resolve(); };
-                        const abort = () => { frame.removeEventListener("load", loaded); reject(signal.reason); };
-                        frame.addEventListener("load", loaded, {once: true});
-                        signal.addEventListener("abort", abort, {once: true});
-                        frame.srcdoc = item.html;
-                        job.preview = true;
-                        refresh();
-                    });
+                    job.preview = item.html;
+                    if (job === selected) refresh();
                 } else if (item.type === "page") {
-                    job.frame.contentWindow.postMessage(item, "*");
+                    job.pages.set(item.pageIndex, item);
+                    if (job.frameReady) job.frame.contentWindow.postMessage(item, "*");
                 } else if (item.type === "complete") {
                     complete = true;
                     clearInterval(timer);
-                    job.downloadUrl = URL.createObjectURL(new Blob([item.html], {type: "text/html;charset=utf-8"}));
+                    job.exportHtml = item.html;
+                    job.preview = null;
                     state(item.hasErrors ? "Transcription partielle" : `Terminée · ${elapsed()} s`, item.hasErrors);
                 } else if (item.type === "error") {
                     throw new Error(item.message);

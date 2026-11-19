@@ -40,7 +40,7 @@ app.add_middleware(PortableDemoCors)
 
 @serve.deployment(ray_actor_options={"num_gpus": 1},
                   logging_config={"enable_access_log": False,},
-                  max_ongoing_requests=100)
+                  max_ongoing_requests=128)
 @serve.ingress(app)
 class VLLMPredictDeployment:
     async def __init__(self, **engine_kwargs):
