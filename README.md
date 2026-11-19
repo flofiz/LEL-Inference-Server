@@ -179,6 +179,22 @@ les mêmes options et images, et écrire les deux rapports dans des fichiers
 distincts. Les temps sont mesurés au niveau du moteur, hors HTTP et préparation
 initiale des images.
 
+Une fois le rapport de référence sauvegardé, toujours serveur arrêté :
+
+```bash
+.venv/bin/python src/inference/rswa_patch.py --apply --variant pruned
+uv run --no-sync --with pytest pytest tests/test_rswa_kernel.py -v
+```
+
+Rejouer ensuite le benchmark avec **les mêmes paramètres**, en ajoutant
+`--label pruned` et en utilisant `--output rswa-pruned.json`. La variante
+`pruned` ne modifie que le parcours des tuiles Triton, pas le masque ni
+l'éviction KV. Pour revenir au noyau de référence sans réinstaller vLLM :
+
+```bash
+.venv/bin/python src/inference/rswa_patch.py --apply --variant baseline
+```
+
 Pour vérifier le serveur et une vraie transcription après redémarrage :
 
 ```bash

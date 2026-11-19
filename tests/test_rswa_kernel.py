@@ -1,8 +1,10 @@
 """Smoke tests for vLLM 0.34 on CUDA, independent of Ray and model weights."""
 
+import random
 import sys
 from importlib.metadata import version
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +20,40 @@ def test_reference_mask_boundaries():
         *range(37),
         *range(97, 129),
     ]
+
+
+def test_rswa_pruned_tiles_match_causal_visibility(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "src"))
+    from inference.rswa_patch import PRUNE_HELPER
+
+    def ceil_div(n, d):
+        return (n + d - 1) // d
+
+    # Execute the exact integer helper used in the patched source without CUDA.
+    namespace = {
+        "triton": SimpleNamespace(jit=lambda fn: fn),
+        "tl": SimpleNamespace(minimum=min, maximum=max, constexpr=int),
+        "cdiv_fn": ceil_div,
+    }
+    exec(PRUNE_HELPER, namespace)
+    prune = namespace["_rswa_pruned_loop"]
+    rng = random.Random(42)
+    for _ in range(1000):
+        seq_len = rng.randint(1, 260)
+        prefix = rng.randint(1, 280)  # May extend beyond the current prefill chunk.
+        q_lo = rng.randrange(seq_len)
+        q_end = rng.randint(q_lo + 1, min(q_lo + 16, seq_len))
+        window = rng.randint(1, 96)
+        tile_size = rng.choice([8, 16, 32])
+        num_tiles = ceil_div(seq_len, tile_size)
+        loop_lo = rng.randrange(num_tiles)
+        loop_hi = rng.randint(loop_lo + 1, num_tiles)
+        kept_hi, gap_first, skipped = prune(
+            loop_lo, loop_hi, prefix, q_lo, q_end, window, tile_size,
+        )
+        actual = [j + (skipped if j >= gap_first else 0) for j in range(loop_lo, kept_hi)]
+        visible = {k // tile_size for q in range(q_lo, q_end) for k in visible_keys(q, prefix, window)}
+        assert actual == [j for j in range(loop_lo, loop_hi) if j in visible]
 
 
 @pytest.fixture
@@ -50,10 +86,11 @@ def test_runtime_imports_and_bf16(cuda_torch, monkeypatch):
     torch.testing.assert_close(x @ x, torch.full_like(x, 16))
 
 
-def run_attention_check(torch, *, seq_len, query_len, prefix, poison_gap=False):
+def run_attention_check(torch, *, seq_len, query_len, prefix, poison_gap=False,
+                        block_size=32, window=32, split_k=False):
     from vllm.v1.attention.ops.triton_unified_attention import unified_attention
 
-    block_size, head_size, window = 32, 128, 32
+    head_size = 128
     num_blocks = (seq_len + block_size - 1) // block_size
     rng = torch.Generator(device="cuda").manual_seed(42)
     opts = {"device": "cuda", "dtype": torch.bfloat16, "generator": rng}
@@ -67,13 +104,23 @@ def run_attention_check(torch, *, seq_len, query_len, prefix, poison_gap=False):
         return torch.tensor(values, dtype=torch.int32, device="cuda")
 
     if poison_gap:
-        # In the decode case block 2 covers positions 64..95: after the
-        # prompt and outside the window of every valid query row.
-        assert all(
-            not set(range(64, 96)).intersection(visible_keys(pos, prefix, window))
-            for pos in range(seq_len - query_len, seq_len)
-        )
-        v[2].fill_(float("nan"))
+        # Include invisible positions in tiles that also contain visible keys.
+        gap_end = seq_len - query_len - window + 1
+        assert gap_end > prefix
+        v.view(-1, head_size)[prefix:gap_end].fill_(float("nan"))
+
+    split_k_options = {}
+    if split_k:
+        segments = 16
+        scratch = {"device": "cuda", "dtype": torch.float32}
+        shape = (query_len, q.shape[1], segments)
+        split_k_options = {
+            "seq_threshold_3D": 16,
+            "num_par_softmax_segments": segments,
+            "softmax_segm_output": torch.empty((*shape, head_size), **scratch),
+            "softmax_segm_max": torch.empty(shape, **scratch),
+            "softmax_segm_expsum": torch.empty(shape, **scratch),
+        }
 
     unified_attention(
         q=q,
@@ -94,6 +141,7 @@ def run_attention_check(torch, *, seq_len, query_len, prefix, poison_gap=False):
         v_descale=None,
         rswa_prefix_lens=int_tensor([prefix]),
         rswa_window=window,
+        **split_k_options,
     )
 
     # Gather only visible keys: masked NaNs never enter the FP32 oracle.
@@ -116,5 +164,16 @@ def test_rswa_triton_matches_reference(cuda_torch, seq_len, query_len):
     run_attention_check(cuda_torch, seq_len=seq_len, query_len=query_len, prefix=37)
 
 
-def test_rswa_triton_recycled_gap(cuda_torch):
-    run_attention_check(cuda_torch, seq_len=130, query_len=2, prefix=37, poison_gap=True)
+@pytest.mark.parametrize("split_k", [False, True], ids=["2d", "split-k"])
+def test_rswa_triton_recycled_gap(cuda_torch, split_k):
+    run_attention_check(
+        cuda_torch, seq_len=130, query_len=2, prefix=37, poison_gap=True, split_k=split_k,
+    )
+
+
+@pytest.mark.parametrize("split_k", [False, True], ids=["2d", "split-k"])
+def test_rswa_triton_16k_decode(cuda_torch, split_k):
+    run_attention_check(
+        cuda_torch, seq_len=2378 + 16384, query_len=2, prefix=2378,
+        window=512, block_size=576, poison_gap=True, split_k=split_k,
+    )
