@@ -54,6 +54,7 @@
         <img id="thumb" alt="Image sélectionnée" hidden>
         <span id="filename">Aucune image sélectionnée</span>
         <a class="action" id="save" hidden>Télécharger l’aperçu</a>
+        <a class="action" id="online" href="https://lel.cotedor.fr/demo" hidden>Ouvrir la démo en ligne</a>
     </div>
     <div id="status" class="status" role="status" aria-live="polite">JPEG, PNG ou WebP. L’image choisie sera envoyée à lel.cotedor.fr pour être transcrite.</div>
 </section>
@@ -69,9 +70,10 @@ async function openPortableTranscription(file) {
     form.append("image", file);
     let response;
     try {
-        response = await fetch(publicStream, {method: "POST", body: form, credentials: "omit"});
+        const endpoint = location.origin === new URL(publicStream).origin ? new URL(publicStream).pathname : publicStream;
+        response = await fetch(endpoint, {method: "POST", body: form, credentials: "omit"});
     } catch {
-        throw new Error("Impossible de lire le serveur public. Vérifiez la connexion et l’autorisation CORS de la démo.");
+        throw new Error("Impossible de lire le serveur public. Depuis un fichier local, essayez « Ouvrir la démo en ligne ».");
     }
     if (!response.ok) throw new Error(`Le serveur a répondu HTTP ${response.status}.`);
     if (!response.headers.get("Content-Type")?.includes("application/x-ndjson"))
@@ -201,6 +203,7 @@ function portableEvents(file, display) {
     const status = document.querySelector("#status");
     const result = document.querySelector("#result");
     const save = document.querySelector("#save");
+    if (location.protocol === "file:") document.querySelector("#online").hidden = false;
     const mimeByExtension = {jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp"};
     let selected = null;
     let thumbUrl = null;

@@ -8,9 +8,10 @@ async function openPortableTranscription(file) {
     form.append("image", file);
     let response;
     try {
-        response = await fetch(publicStream, {method: "POST", body: form, credentials: "omit"});
+        const endpoint = location.origin === new URL(publicStream).origin ? new URL(publicStream).pathname : publicStream;
+        response = await fetch(endpoint, {method: "POST", body: form, credentials: "omit"});
     } catch {
-        throw new Error("Impossible de lire le serveur public. Vérifiez la connexion et l’autorisation CORS de la démo.");
+        throw new Error("Impossible de lire le serveur public. Depuis un fichier local, essayez « Ouvrir la démo en ligne ».");
     }
     if (!response.ok) throw new Error(`Le serveur a répondu HTTP ${response.status}.`);
     if (!response.headers.get("Content-Type")?.includes("application/x-ndjson"))

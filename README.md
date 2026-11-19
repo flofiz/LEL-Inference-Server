@@ -279,13 +279,14 @@ Le navigateur ferme provisoirement les balises ouvertes (par exemple un
 tableau, à compléter au prochain morceau). À la fin, l'aperçu peut toujours
 être téléchargé pour une présentation hors ligne.
 
-Pour envoyer la démo à quelqu'un qui ne peut pas lancer Python, partager
-[`demo-lettres-en-lumieres.html`](demo-lettres-en-lumieres.html). Il s'ouvre
-directement dans un navigateur depuis le disque, sans installation, mais a
-besoin d'Internet pour les nouvelles transcriptions. Le serveur doit avoir
-été redémarré avec la version qui autorise cet accès sans identifiants à
-`POST /transcribe/html/stream`. Après une modification de l'interface,
-`python scripts/build_portable_demo.py` reconstruit le fichier à partager.
+Pour partager la démo sans Python, privilégier
+[`https://lel.cotedor.fr/demo`](https://lel.cotedor.fr/demo) : la page et l'API
+ont la même origine et n'ont pas besoin de CORS. On peut aussi envoyer
+[`demo-lettres-en-lumieres.html`](demo-lettres-en-lumieres.html). S'il est ouvert
+depuis le disque et que le proxy bloque l'accès à l'API, cliquer sur **Ouvrir
+la démo en ligne**. Après une modification de l'interface,
+`python scripts/build_portable_demo.py` reconstruit le fichier à partager et
+servi par `/demo`.
 
 ---
 

@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from ray import serve
 from api.demo_cors import PortableDemoCors
-from starlette.responses import StreamingResponse, Response
+from starlette.responses import FileResponse, StreamingResponse, Response
 from starlette.requests import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,7 @@ from processing.html_output import HTML_CONTEXT_LENGTH
 from ray.serve.config import HTTPOptions
 
 MAINTENANCE_FILE = "/tmp/maintenance"
+DEMO_HTML = Path(__file__).resolve().parents[1] / "demo-lettres-en-lumieres.html"
 
 app = FastAPI()
 
@@ -69,6 +70,13 @@ class VLLMPredictDeployment:
     @app.post("/transcribe/html/stream")
     async def transcribe_html_stream(self, request: Request) -> Response:
         return await self.engine.transcribe_html(request, stream=True)
+
+    @app.get("/demo", include_in_schema=False)
+    async def demo(self) -> FileResponse:
+        return FileResponse(
+            DEMO_HTML, media_type="text/html",
+            headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
+        )
 
     @app.get("/")
     async def health(self):
