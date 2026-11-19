@@ -226,6 +226,22 @@ indique que la sortie peut être incomplète. La route ne streame pas : pour les
 pages longues, utiliser le port local pour les tests ou prévoir un timeout
 plus long côté client et reverse proxy.
 
+### Client local de démonstration HTML
+
+Depuis la racine du dépôt, sur la machine qui présente la démo :
+
+```bash
+python scripts/demo_transcription_html.py
+```
+
+Le navigateur s'ouvre sur `http://127.0.0.1:8765/`. Déposer un JPEG, PNG ou WebP,
+ou cliquer sur **Importer depuis mes fichiers**, puis sur **Transcrire**.
+Le client utilise le serveur public `https://lel.cotedor.fr` via un relais
+local ; aucun changement du serveur, de CORS ou du venv d'inférence n'est
+nécessaire. Python seul suffit. L'image originale et les segments sont
+interactifs à côté du HTML, et l'aperçu peut être téléchargé pour une
+présentation hors ligne.
+
 ---
 
 ## Modèle
