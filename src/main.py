@@ -47,7 +47,7 @@ class VLLMPredictDeployment:
                 msg = record.getMessage()
                 return not ("GET / 200" in msg or "GET / 404" in msg)
         logging.getLogger("ray.serve").addFilter(FilterHealthCheck())
-        self.engine = HTREngine(name = "QWEN2.5-VL-3B-27032026",**engine_kwargs)
+        self.engine = HTREngine(name = engine_kwargs["model"].split("/")[-1],**engine_kwargs)
     @app.post("/transcribe")
     async def transcribe(self, request: Request) -> Response:
         return await self.engine.transcribe(request)

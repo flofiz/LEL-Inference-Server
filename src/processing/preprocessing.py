@@ -55,11 +55,13 @@ def reshape_image(image, qwen_version="qwen25"):
 
     if qwen_version=="qwen25":
         patch_size = 28
+        nb_patch_max = 1280
     elif qwen_version=="qwen35":
+        nb_patch_max = 2000
         patch_size = 32
     else:
         raise Exception("ModelNotSupported","Le model doit etre qwen25 ou qwen35")
-    max_pixels = 1280*patch_size**2
+    max_pixels = nb_patch_max*patch_size**2
     min_pixels = 960*patch_size**2
     if img_width*img_height < min_pixels:
         ratio = min_pixels / (img_width* img_height)
