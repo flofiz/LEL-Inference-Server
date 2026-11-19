@@ -1,6 +1,10 @@
 # LEL-Inference-Server
 
-Serveur d'inférence HTR (Handwritten Text Recognition) basé sur **Ray Serve** + **vLLM** + **Qwen2.5-VL-3B**.
+Serveur d'inférence HTR (Handwritten Text Recognition) basé sur **Ray Serve**,
+**vLLM 0.34.0** et **Qwen3.5-4B RSWA**.
+
+**Documentation complète : [guide de maintenance RSWA, HTML et démo](docs/guide-maintenance-rswa.md)** —
+comparaison avec le serveur d'origine, modifications dans vLLM, paramètres, API, tests et procédure de retour arrière.
 
 ---
 
@@ -21,7 +25,9 @@ VLLMPredictDeployment  ←── @serve.deployment (1 GPU)
     ├── MaintenanceMiddleware  (/tmp/maintenance)
     ├── POST /transcribe       → HTREngine.__call__()
     ├── POST /transcribe/stream
-    ├── POST /retranscribe
+    ├── POST /transcribe/html
+    ├── POST /transcribe/html/stream
+    ├── GET  /demo
     ├── GET  /health
     └── GET  /model_info
             │
@@ -292,7 +298,12 @@ servi par `/demo`.
 
 ## Modèle
 
-- **Chemin** : `/home/fizainef/LLM/Weights/Qwen2.5-VL_GRPO`
+- **Checkpoint par défaut** : `/home/fizainef/Weights/Qwen3.5-4B-06112026-sft-html-convert-rswa-w512_grpo`
+- **Sorties disponibles** : TSV converti en polygones ou HTML par fragment.
+
+### Ancien checkpoint Qwen2.5 (historique)
+
+- **Chemin historique** : `/home/fizainef/LLM/Weights/Qwen2.5-VL_GRPO`
 - **Base** : `Qwen2.5-VL-3B-Instruct` fine-tuné SFT puis GRPO (`Paradoxis/Qwen2.5-VL-3B_tsv_grpo-27032026`)
 - **Format de sortie** : `|texte|xmin,ymin,xmax,ymax|` (pipe-séparé, sans angle — angle=0 par défaut)
 - Pour re-fusionner le modèle :
@@ -310,7 +321,7 @@ servi par `/demo`.
 |-----------|--------|
 | `max_num_seqs` | 90 |
 | `max_model_len` | 24576 |
-| `max_num_batched_tokens` | 32768 |
+| `max_num_batched_tokens` | 16384 |
 | `dtype` | bfloat16 |
 | `gpu_memory_utilization` | 0.95 |
 | `enable_chunked_prefill` | True |
