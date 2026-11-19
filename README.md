@@ -142,6 +142,14 @@ répertoire et créer un venv sans les dépendances du serveur.
 modèle standard. Un manifeste incomplet, un patch absent ou un cache incompatible
 fait échouer l'initialisation du réplica, sans repli en full attention.
 
+### Thinking Qwen3.5
+
+Le serveur passe `enable_thinking=False` au chat template Qwen3.5 par défaut,
+avec ou sans RSWA. Pour le réactiver, définir `HTR_ENABLE_THINKING=1` au
+démarrage. Le template Qwen officiel insère un bloc `<think>` déjà fermé dans
+le prompt lorsque le thinking est désactivé. Si un checkpoint utilise un
+template personnalisé, celui-ci doit gérer l'option `enable_thinking`.
+
 Pour vérifier le serveur et une vraie transcription après redémarrage :
 
 ```bash

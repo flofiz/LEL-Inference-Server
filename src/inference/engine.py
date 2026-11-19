@@ -50,7 +50,7 @@ LINE = rf"{LATIN_CHARS}\t{COORD}\t{COORD}\t{COORD}\t{COORD}\t{ANGLE}\n"
 
 guided_regex = rf"```tsv\n{LINE}+```"
 class HTREngine:
-    def __init__(self, name, *, require_rswa=False, standard_mtp=False, **kwargs):
+    def __init__(self, name, *, require_rswa=False, standard_mtp=False, enable_thinking=False, **kwargs):
         """
         Construct a VLLM deployment.
 
@@ -85,6 +85,7 @@ class HTREngine:
             disable_log_requests: disable logging requests.
         """
         self.name = name
+        self.enable_thinking = enable_thinking
         self.logger = logging.getLogger("ray.serve")
         self.rswa_policy = discover(kwargs["model"])
         if self.rswa_policy is not None:
@@ -294,7 +295,13 @@ class HTREngine:
         guided_decoding_params = StructuredOutputsParams(regex=latin1_regex)
         sampling_params = SamplingParams(structured_outputs=guided_decoding_params, **request_dict)
         loop = asyncio.get_event_loop()
-        input_list = await loop.run_in_executor(None, lambda: get_inputs(image, self.engine.get_tokenizer(), PROMPT, SYSTEM, qwen_version = QWEN_VERSION))
+        input_list = await loop.run_in_executor(
+            None,
+            lambda: get_inputs(
+                image, self.engine.get_tokenizer(), PROMPT, SYSTEM,
+                qwen_version=QWEN_VERSION, enable_thinking=self.enable_thinking,
+            ),
+        )
         
         for inputs, ratio, offset in input_list:
             request_id = random_uuid()

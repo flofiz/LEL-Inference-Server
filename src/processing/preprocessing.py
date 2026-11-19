@@ -106,7 +106,7 @@ def prepare_image(image,qwen_version="qwen25"):
         yield img_str, ratios, offset
 
 
-def get_inputs(image, tokenizer, PROMPT, SYSTEM, qwen_version="qwen25"):
+def get_inputs(image, tokenizer, PROMPT, SYSTEM, qwen_version="qwen25", *, enable_thinking=False):
     # image = Image.open(BytesIO(base64.b64decode(image)))
     image = Image.open(BytesIO(image))
     for image_str, ratios, offset in prepare_image(image,qwen_version):
@@ -132,10 +132,12 @@ def get_inputs(image, tokenizer, PROMPT, SYSTEM, qwen_version="qwen25"):
         # Extraire les données multimodales avec l'utilitaire Qwen
         image_inputs, video_inputs = process_vision_info(messages)
         # Appliquer le chat template
+        template_options = {"enable_thinking": enable_thinking} if qwen_version == "qwen35" else {}
         text_prompt = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
-            add_generation_prompt=True
+            add_generation_prompt=True,
+            **template_options,
         )
         # Construire l'input pour generate()
         inputs = {
