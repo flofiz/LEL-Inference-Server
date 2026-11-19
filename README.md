@@ -102,8 +102,8 @@ recompilation). Le script refuse toute version ou source différente de celle
 auditée et peut être relancé sans réappliquer le patch.
 
 ```bash
-uv run --no-sync python src/inference/rswa_patch.py --apply
-uv run --no-sync python src/inference/rswa_patch.py
+uv run --no-sync python src/inference/rswa_patch.py --apply --mtp3
+uv run --no-sync python src/inference/rswa_patch.py --mtp3
 uv run --no-sync --with pytest pytest tests/test_rswa_kernel.py -v
 ```
 
@@ -111,12 +111,12 @@ uv run --no-sync --with pytest pytest tests/test_rswa_kernel.py -v
 Le patch ne modifie pas les checkpoints. Ray Serve active RSWA uniquement si
 le manifeste `rswa_training.json` et les métadonnées dans `config.json` sont
 cohérents. Le mode RSWA exige un Qwen3.5 multimodal BF16 non quantifié et un
-seul GPU. MTP `K=1` reste le réglage par défaut.
+seul GPU. Ray Serve utilise MTP `K=3` par défaut.
 
 Pour valider le vrai checkpoint avant le démarrage du serveur, sur l'A40 libre :
 
 ```bash
-HTR_RSWA_TEST_MODEL=/chemin/checkpoint-rswa uv run --no-sync --with pytest \
+HTR_MTP_TOKENS=3 HTR_RSWA_TEST_MODEL=/chemin/checkpoint-rswa uv run --no-sync --with pytest \
   pytest tests/test_rswa_checkpoint.py -v -s --image-path /chemin/page.jpg
 ```
 
@@ -143,7 +143,7 @@ incompatible fait échouer l'initialisation du réplica, sans repli en full
 attention. Pour servir volontairement un checkpoint standard, définir aussi
 `HTR_REQUIRE_RSWA=0`.
 
-### Essayer MTP3 avec RSWA
+### Préparer et vérifier MTP3 avec RSWA
 
 Serveur arrêté, dans le venv de l'A40 :
 
@@ -157,10 +157,10 @@ HTR_MTP_TOKENS=3 HTR_RSWA_TEST_MODEL=/chemin/checkpoint-rswa \
 L'installation conserve la variante `pruned` si elle est déjà en place.
 MTP3 utilise la même couche MTP en trois étapes séquentielles ; le patch
 transmet le préfixe multimodal complet lors de chaque reconstruction des
-métadonnées. Après le test, démarrer avec `HTR_MTP_TOKENS=3` (par exemple dans
-l'environnement du service systemd). Le réglage s'applique au moteur entier,
-donc aussi aux routes TSV et HTML non streamées. Retirer la variable ou la
-remettre à `1` permet de revenir à MTP1 sans réinstaller vLLM.
+métadonnées. Après le test, le service démarre en MTP3 sans variable
+supplémentaire. Le réglage s'applique au moteur entier, donc aussi aux routes
+TSV et HTML non streamées. Définir explicitement `HTR_MTP_TOKENS=1` dans
+l'environnement du service permet de revenir à MTP1 sans réinstaller vLLM.
 
 ### Thinking Qwen3.5
 
