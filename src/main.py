@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from ray import serve
-from api.routes import create_routes
+from api.demo_cors import PortableDemoCors
 from starlette.responses import StreamingResponse, Response
 from starlette.requests import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -26,6 +26,7 @@ class MaintenanceMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(MaintenanceMiddleware)
+app.add_middleware(PortableDemoCors)
 # Configuration CORS
 # app.add_middleware(
 #     CORSMiddleware,

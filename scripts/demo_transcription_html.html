@@ -21,14 +21,13 @@
     .status { grid-column: 1 / -1; min-height: 1.35em; color: #40556d; }
     .status.error { color: #9d2430; }
     button, a.action { display: inline-block; padding: 7px 12px; border: 1px solid #a8b9c9; border-radius: 7px; color: #23384f; background: #fff; font: inherit; text-decoration: none; cursor: pointer; }
-    #run { color: #fff; background: #075d74; border-color: #075d74; }
     button:disabled { opacity: .55; cursor: not-allowed; }
     button:focus-visible, a:focus-visible { outline: 3px solid #16a6c0; outline-offset: 2px; }
     .compact-label { display: none; }
     iframe { flex: 1 1 0; width: 100%; min-height: 0; border: 0; background: #eef2f7; }
     .viewing { height: 100dvh; overflow: hidden; }
     .viewing > header, .viewing #drop strong, .viewing #thumb,
-    .viewing .upload-label, .viewing:not(.can-retry) #run { display: none; }
+    .viewing .upload-label { display: none; }
     .viewing .compact-label { display: inline; }
     .viewing .workspace { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap;
         gap: 4px 10px; padding: 5px 10px; font-size: 13px; }
@@ -54,17 +53,16 @@
     <div class="selection">
         <img id="thumb" alt="Image sélectionnée" hidden>
         <span id="filename">Aucune image sélectionnée</span>
-        <button id="run" type="button" disabled>Transcrire</button>
         <a class="action" id="save" hidden>Télécharger l’aperçu</a>
     </div>
-    <div id="status" class="status" role="status" aria-live="polite">JPEG, PNG ou WebP. L’image sera envoyée à lel.cotedor.fr lorsque vous cliquerez sur Transcrire.</div>
+    <div id="status" class="status" role="status" aria-live="polite">JPEG, PNG ou WebP. L’image choisie sera envoyée à lel.cotedor.fr pour être transcrite.</div>
 </section>
 <iframe id="result" title="Image, segments et transcription" sandbox="allow-scripts" hidden></iframe>
+<!-- portable client -->
 <script>
     const picker = document.querySelector("#file");
     const drop = document.querySelector("#drop");
     const choose = document.querySelector("#choose");
-    const run = document.querySelector("#run");
     const thumb = document.querySelector("#thumb");
     const filename = document.querySelector("#filename");
     const status = document.querySelector("#status");
@@ -83,7 +81,7 @@
 
     function clearResult() {
         result.hidden = true;
-        document.body.classList.remove("viewing", "can-retry");
+        document.body.classList.remove("viewing");
         result.removeAttribute("srcdoc");
         save.hidden = true;
         save.removeAttribute("href");
@@ -106,8 +104,7 @@
         thumb.hidden = false;
         filename.textContent = file.name;
         filename.title = file.name;
-        run.disabled = false;
-        message("Image prête. Cliquez sur Transcrire pour l’envoyer à lel.cotedor.fr.");
+        transcribe();
     }
 
     async function readEvents(response, receive) {
@@ -149,24 +146,25 @@
         drop.classList.remove("drag");
         selectFile(event.dataTransfer.files[0]);
     });
-    run.addEventListener("click", async () => {
+    async function transcribe() {
         if (!selected || busy) return;
         clearResult();
-        busy = run.disabled = choose.disabled = true;
+        busy = choose.disabled = true;
         const started = performance.now();
         const elapsed = () => Math.floor((performance.now() - started) / 1000);
         const pending = () => message(`Transcription en cours · ${elapsed()} s`);
         pending();
         const timer = setInterval(pending, 1000);
         try {
-            const response = await fetch("/transcribe", {
-                method: "POST",
-                body: selected.file,
-                headers: {"Content-Type": selected.mime},
-            });
+            const portable = typeof openPortableTranscription === "function";
+            const response = portable ? await openPortableTranscription(selected.file, selected.mime)
+                : await fetch("/transcribe", {
+                    method: "POST", body: selected.file,
+                    headers: {"Content-Type": selected.mime},
+                });
             if (!response.ok) throw new Error(await response.text() || `Erreur HTTP ${response.status}`);
             let complete = false;
-            await readEvents(response, async item => {
+            async function display(item) {
                 if (item.type === "preview") {
                     const loaded = new Promise(resolve => result.addEventListener("load", resolve, {once: true}));
                     result.srcdoc = item.html;
@@ -181,22 +179,21 @@
                     save.href = downloadUrl;
                     save.download = selected.file.name.replace(/\.[^.]+$/, "") + "-transcription.html";
                     save.hidden = false;
-                    document.body.classList.toggle("can-retry", item.hasErrors);
                     message(item.hasErrors ? "Transcription partielle : un fragment a échoué."
                                            : `Transcription terminée en ${elapsed()} s.`, item.hasErrors);
                 } else if (item.type === "error") {
                     throw new Error(item.message);
                 }
-            });
+            }
+            await readEvents(response, portable ? portableEvents(selected.file, display) : display);
             if (!complete) throw new Error("Le flux de transcription a été interrompu.");
         } catch (error) {
-            document.body.classList.add("can-retry");
             message(error.message || "La transcription a échoué.", true);
         } finally {
             clearInterval(timer);
-            busy = run.disabled = choose.disabled = false;
+            busy = choose.disabled = false;
         }
-    });
+    }
 </script>
 </body>
 </html>

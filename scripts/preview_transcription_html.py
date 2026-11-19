@@ -221,8 +221,12 @@ def render(report, image, image_mime="image/jpeg"):
             f'<div class="fragment-body">{fragment["fragment"]}</div></section>'
         )
     width, height = int(report["imageWidth"]), int(report["imageHeight"])
-    script_hash = b64encode(sha256(SCRIPT.encode()).digest()).decode()
     image_url = f"data:{image_mime};base64," + b64encode(image).decode()
+    return render_shell(width, height, image_url, "".join(fragments), "".join(boxes), total)
+
+
+def render_shell(width, height, image_url, fragments, boxes, total):
+    script_hash = b64encode(sha256(SCRIPT.encode()).digest()).decode()
     return f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-{script_hash}'">
@@ -234,7 +238,7 @@ def render(report, image, image_mime="image/jpeg"):
 </div><span id="status">Cliquez sur un segment pour le retrouver.</span></header>
 <main><div class="scan"><svg viewBox="0 0 {width} {height}" aria-label="Image originale et segments">
 <image href="{image_url}" width="{width}" height="{height}"/>
-{"".join(boxes)}</svg></div><div class="transcript">{"".join(fragments)}</div></main>
+{boxes}</svg></div><div class="transcript">{fragments}</div></main>
 <script>{SCRIPT}</script></body></html>
 """
 

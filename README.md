@@ -269,7 +269,8 @@ python scripts/demo_transcription_html.py
 ```
 
 Le navigateur s'ouvre sur `http://127.0.0.1:8765/`. Déposer un JPEG, PNG ou WebP,
-ou cliquer sur **Importer depuis mes fichiers**, puis sur **Transcrire**.
+ou cliquer sur **Importer depuis mes fichiers** : le choix de l'image lance
+immédiatement la transcription.
 Le client utilise le serveur public `https://lel.cotedor.fr` via un relais
 local ; aucun changement du serveur, de CORS ou du venv d'inférence n'est
 nécessaire. Python seul suffit. Le client utilise la route HTML streamée :
@@ -277,6 +278,14 @@ les segments et la transcription apparaissent au fil des morceaux reçus.
 Le navigateur ferme provisoirement les balises ouvertes (par exemple un
 tableau, à compléter au prochain morceau). À la fin, l'aperçu peut toujours
 être téléchargé pour une présentation hors ligne.
+
+Pour envoyer la démo à quelqu'un qui ne peut pas lancer Python, partager
+[`demo-lettres-en-lumieres.html`](demo-lettres-en-lumieres.html). Il s'ouvre
+directement dans un navigateur depuis le disque, sans installation, mais a
+besoin d'Internet pour les nouvelles transcriptions. Le serveur doit avoir
+été redémarré avec la version qui autorise cet accès sans identifiants à
+`POST /transcribe/html/stream`. Après une modification de l'interface,
+`python scripts/build_portable_demo.py` reconstruit le fichier à partager.
 
 ---
 

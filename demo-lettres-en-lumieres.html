@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self' https://lel.cotedor.fr; img-src blob: data:; frame-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'">
+<title>Lettres en Lumières · Démo HTML</title>
+<style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100dvh; display: flex; flex-direction: column; color: #203047; background: #eef2f7; font: 15px system-ui, sans-serif; }
+    [hidden] { display: none !important; }
+    header { background: #14253b; color: #fff; padding: 18px clamp(16px, 4vw, 56px); }
+    header p { margin: 3px 0 0; color: #b9d4e6; }
+    h1 { margin: 0; font-size: clamp(20px, 3vw, 29px); }
+    .workspace { display: grid; grid-template-columns: minmax(215px, 1fr) minmax(270px, 2fr); gap: 12px; padding: 14px clamp(16px, 4vw, 56px); background: #fff; border-bottom: 1px solid #d8e1eb; }
+    #drop { display: grid; place-items: center; gap: 4px; min-height: 86px; border: 2px dashed #9babbd; border-radius: 10px; padding: 8px; text-align: center; }
+    #drop.drag { border-color: #08647a; background: #e1f6fa; }
+    .selection { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+    #thumb { width: 48px; height: 58px; object-fit: contain; border: 1px solid #d8e1eb; border-radius: 5px; }
+    #filename { overflow-wrap: anywhere; }
+    .status { grid-column: 1 / -1; min-height: 1.35em; color: #40556d; }
+    .status.error { color: #9d2430; }
+    button, a.action { display: inline-block; padding: 7px 12px; border: 1px solid #a8b9c9; border-radius: 7px; color: #23384f; background: #fff; font: inherit; text-decoration: none; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    button:focus-visible, a:focus-visible { outline: 3px solid #16a6c0; outline-offset: 2px; }
+    .compact-label { display: none; }
+    iframe { flex: 1 1 0; width: 100%; min-height: 0; border: 0; background: #eef2f7; }
+    .viewing { height: 100dvh; overflow: hidden; }
+    .viewing > header, .viewing #drop strong, .viewing #thumb,
+    .viewing .upload-label { display: none; }
+    .viewing .compact-label { display: inline; }
+    .viewing .workspace { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap;
+        gap: 4px 10px; padding: 5px 10px; font-size: 13px; }
+    .viewing #drop { display: block; min-height: 0; border: 0; padding: 0; }
+    .viewing .selection { gap: 8px; }
+    .viewing #filename { max-width: min(30vw, 280px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .viewing .status { margin-left: auto; }
+    .viewing button, .viewing a.action { padding: 4px 8px; }
+    @media (max-width: 630px) { .workspace { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+    <h1>Lettres en Lumières</h1>
+    <p>Démo · Transcription structurée de documents historiques</p>
+</header>
+<section class="workspace" aria-label="Importer et transcrire une image">
+    <div id="drop">
+        <strong>Déposez une image ici</strong>
+        <input id="file" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+        <button id="choose" type="button"><span class="upload-label">Importer depuis mes fichiers</span><span class="compact-label">Nouvelle image</span></button>
+    </div>
+    <div class="selection">
+        <img id="thumb" alt="Image sélectionnée" hidden>
+        <span id="filename">Aucune image sélectionnée</span>
+        <a class="action" id="save" hidden>Télécharger l’aperçu</a>
+    </div>
+    <div id="status" class="status" role="status" aria-live="polite">JPEG, PNG ou WebP. L’image choisie sera envoyée à lel.cotedor.fr pour être transcrite.</div>
+</section>
+<iframe id="result" title="Image, segments et transcription" sandbox="allow-scripts" hidden></iframe>
+<script>const portableViewerShell = "\u003c!doctype html>\n\u003chtml lang=\"fr\">\u003chead>\u003cmeta charset=\"utf-8\">\u003cmeta name=\"viewport\" content=\"width=device-width\">\n\u003cmeta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-764LB7qdJU+Ylk78tfVI59DcEa8bQmuT5D2RyBranHs='\">\n\u003ctitle>Aperçu de la transcription\u003c/title>\u003cstyle>\n* { box-sizing: border-box; }\nbody { margin: 0; height: 100dvh; display: flex; flex-direction: column;\n    color: #242e38; background: #f1ede5; font: 14px system-ui, sans-serif; }\n.bar, .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }\n.bar { background: #fffaf2; padding: 6px 12px; border-bottom: 1px solid #d8ccb7; }\n.bar h1 { margin: 0; font-size: 14px; white-space: nowrap; }\n.bar label { display: inline-flex; align-items: center; gap: 5px; }\n#zoom { width: 85px; }\n#status { flex: 1 1 140px; min-width: 0; color: #516074; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\nmain { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); flex: 1; min-height: 0; }\n.scan { background: #28323e; overflow: auto; min-height: 0; }\n.scan svg { display: block; height: auto; margin-inline: auto; }\n.box { fill: #28e0fc18; stroke: #05daf5; stroke-width: 1.1; cursor: pointer; }\n.box.page-0 { fill: #ffba4b20; stroke: #ffb346; }\n.box.tag-table { fill: #47be8c18; stroke: #2dcb96; }\n.box.tag-aside { fill: #ad7bff29; stroke: #b78cff; }\n.box.tag-signature { fill: #f57a7a22; stroke: #fa8a80; }\n.box.tag-page-number { fill: #c4ccd629; stroke: #d9e1eb; }\n.box.tag-heading { fill: #e9cc5a24; stroke: #e8c75d; }\n.box.active { fill: #ffed3990; stroke: #fff423; stroke-width: 3; }\n.hide-boxes .box { visibility: hidden; }\n.transcript { min-width: 0; overflow: auto; padding: 10px; }\n.fragment { background: #fffdf8; border: 1px solid #ded3be; border-radius: 8px; margin-bottom: 10px; padding: 12px; }\n.fragment > h2 { margin: 0 0 9px; font-size: 14px; font-weight: 600; color: #4d5660; }\n.fragment-body { overflow: auto; color: #27231d; font: 17px/1.5 Georgia, \"Times New Roman\", serif; }\n.fragment-body p { margin: .6em 0; }\n.fragment-body p > span[data-segment] { display: block; }\n.fragment-body h1, .fragment-body h2, .fragment-body h3,\n.fragment-body h4, .fragment-body h5, .fragment-body h6 { margin: .7em 0 .3em; color: #423725; }\n.fragment-body aside { margin: .65em 0; padding: .4em .75em; border-left: 3px solid #8c63c6;\n    background: #f3ecfc; color: #533875; font-style: italic; }\n.fragment-body signature { display: block; margin: .65em 0; padding: .25em .6em;\n    border-top: 1px dashed #d7a6a0; color: #772f2a; text-align: right; font-style: italic; font-weight: 600; }\n.fragment-body page_number { display: inline-block; margin: .25em 0; padding: 1px 7px;\n    border: 1px solid #ded7c9; border-radius: 5px; color: #515b69; background: #f2eee6;\n    font: 12px/1.5 system-ui, sans-serif; font-variant-numeric: tabular-nums; }\n.fragment-body del { color: #75665c; text-decoration-thickness: 1.5px; }\ntable { border-collapse: collapse; width: max-content; min-width: 100%; margin: 8px 0; font-size: 15px; line-height: 1.4; }\ntd, th { border: 1px solid #d5c7ad; padding: 3px 5px; min-width: 12px; vertical-align: top; }\nthead, tfoot { background: #f0e7d5; }\n[data-segment] { cursor: pointer; }\n.transcript [data-segment].active { background: #ffea8a; outline: 1px solid #d18c0c; }\n@media (max-width: 720px) {\n    main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 52fr) minmax(0, 48fr); }\n}\n\u003c/style>\u003c/head>\n\u003cbody>\u003cheader class=\"bar\">\u003ch1>Image et transcription · \u003cspan id=\"segment-count\">@@total@@\u003c/span> segments\u003c/h1>\n\u003cdiv class=\"controls\">\n\u003clabel>\u003cinput id=\"overlay\" type=\"checkbox\" checked>Afficher les segments\u003c/label>\n\u003clabel title=\"100 % affiche l’image entière\">\u003cinput id=\"zoom\" type=\"range\" min=\"100\" max=\"350\" step=\"10\" value=\"100\" aria-label=\"Zoom\"> \u003coutput id=\"zoom-value\">100%\u003c/output>\u003c/label>\n\u003c/div>\u003cspan id=\"status\">Cliquez sur un segment pour le retrouver.\u003c/span>\u003c/header>\n\u003cmain>\u003cdiv class=\"scan\">\u003csvg viewBox=\"0 0 @@width@@ @@height@@\" aria-label=\"Image originale et segments\">\n\u003cimage href=\"@@image@@\" width=\"@@width@@\" height=\"@@height@@\"/>\n@@boxes@@\u003c/svg>\u003c/div>\u003cdiv class=\"transcript\">@@fragments@@\u003c/div>\u003c/main>\n\u003cscript>\nconst overlay = document.querySelector(\"#overlay\");\nconst scan = document.querySelector(\".scan\");\nconst svg = scan.querySelector(\"svg\");\nconst zoom = document.querySelector(\"#zoom\");\nconst pairs = new Map();\nfunction indexSegments() {\n    pairs.clear();\n    for (const element of document.querySelectorAll(\"[data-segment]\")) {\n        const key = element.dataset.segment;\n        if (!pairs.has(key)) pairs.set(key, []);\n        pairs.get(key).push(element);\n    }\n}\nindexSegments();\nlet active = [];\nlet activeKey = null;\nfunction select(key) {\n    for (const element of active) element.classList.remove(\"active\");\n    activeKey = key;\n    active = pairs.get(key) || [];\n    for (const element of active) element.classList.add(\"active\");\n    const [fragment, index] = key.split(\"-\");\n    const text = active.find(element => element.closest(\".transcript\"))?.textContent.trim() || \"\";\n    document.querySelector(\"#status\").textContent =\n        `Fragment ${fragment} · segment ${index}${text ? \" · \" + text.slice(0, 100) : \"\"}`;\n}\ndocument.querySelector(\"main\").addEventListener(\"pointerover\", event => {\n    const target = event.target.closest(\"[data-segment]\");\n    if (target) select(target.dataset.segment);\n});\ndocument.querySelector(\"main\").addEventListener(\"click\", event => {\n    const target = event.target.closest(\"[data-segment]\");\n    if (!target) return;\n    select(target.dataset.segment);\n    for (const element of active)\n        if (element !== target) element.scrollIntoView({block: \"center\", inline: \"center\"});\n});\noverlay.addEventListener(\"change\", () => scan.classList.toggle(\"hide-boxes\", !overlay.checked));\nfunction fitImage() {\n    const {width, height} = scan.getBoundingClientRect();\n    const image = svg.viewBox.baseVal;\n    if (image.width && image.height) {\n        const fittedWidth = Math.min(width, height * image.width / image.height);\n        svg.style.width = fittedWidth * Number(zoom.value) / 100 + \"px\";\n    }\n    document.querySelector(\"#zoom-value\").textContent = zoom.value + \"%\";\n}\nzoom.addEventListener(\"input\", fitImage);\nnew ResizeObserver(fitImage).observe(scan);\nfitImage();\nwindow.addEventListener(\"message\", event => {\n    if (window.parent === window || event.source !== window.parent || event.data?.type !== \"page\") return;\n    const {pageIndex, fragment, boxes, segmentCount, finishReason} = event.data;\n    if (!Number.isInteger(pageIndex)) return;\n    const page = document.querySelector(`.fragment[data-page-index=\"${pageIndex}\"]`);\n    const group = scan.querySelector(`g[data-page-index=\"${pageIndex}\"]`);\n    if (!page || !group) return;\n    // Only sanitized markup from the local relay reaches these containers.\n    // The browser closes open table/paragraph tags provisionally.\n    const content = page.querySelector(\".fragment-body\");\n    const left = content.scrollLeft;\n    content.innerHTML = fragment;\n    content.scrollLeft = left;\n    group.innerHTML = boxes;\n    page.querySelector(\"h2\").textContent =\n        `Fragment ${pageIndex + 1} · ${segmentCount} segments (${finishReason || \"en cours\"})`;\n    document.querySelector(\"#segment-count\").textContent = scan.querySelectorAll(\".box\").length;\n    indexSegments();\n    if (activeKey && pairs.has(activeKey)) select(activeKey);\n});\n\u003c/script>\u003c/body>\u003c/html>\n";
+const publicStream = "https://lel.cotedor.fr/transcribe/html/stream";
+const allowedTags = new Set("p h1 h2 h3 h4 h5 h6 span table caption thead tbody tfoot tr th td aside signature page_number del br em strong i b sub sup".split(" "));
+const tagTypes = {aside: "aside", signature: "signature", page_number: "page-number", table: "table",
+    h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading"};
+
+async function openPortableTranscription(file) {
+    const form = new FormData();
+    form.append("image", file);
+    let response;
+    try {
+        response = await fetch(publicStream, {method: "POST", body: form, credentials: "omit"});
+    } catch {
+        throw new Error("Impossible de lire le serveur public. Vérifiez la connexion et l’autorisation CORS de la démo.");
+    }
+    if (!response.ok) throw new Error(`Le serveur a répondu HTTP ${response.status}.`);
+    if (!response.headers.get("Content-Type")?.includes("application/x-ndjson"))
+        throw new Error("Le serveur n’a pas renvoyé de flux de transcription (maintenance possible).");
+    return response;
+}
+
+function portablePage(page, pageIndex) {
+    const source = document.createElement("template");
+    const result = document.createElement("div");
+    const boxes = [];
+    const text = page.raw;
+    if (!"```html".startsWith(text.trim().toLowerCase())) {
+        const opening = /^\s*```html[ \t]*\r?\n/i;
+        source.innerHTML = opening.test(text)
+            ? text.replace(opening, "").replace(/(?:^|\r?\n)[ \t]*```[ \t]*(?:\r?\n)*$/, "") : text;
+    }
+    const number = pageIndex + 1;
+
+    function copy(node, parent, context) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            parent.append(document.createTextNode(node.textContent));
+            return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const tag = node.localName;
+        if (["script", "style", "iframe", "object", "embed", "svg", "math"].includes(tag)) return;
+        if (!allowedTags.has(tag)) {
+            for (const child of node.childNodes) copy(child, parent, context);
+            return;
+        }
+        const safe = document.createElement(tag);
+        const kind = Object.hasOwn(tagTypes, tag) ? tagTypes[tag] : context;
+        if (tag === "td" || tag === "th") {
+            for (const key of ["colspan", "rowspan"]) {
+                const span = node.getAttribute(key);
+                if (span && /^\d+$/.test(span)) safe.setAttribute(key, span);
+            }
+        }
+        const coord = node.getAttribute("coord");
+        if (coord && /^\d+,\d+,\d+,\d+,-?\d+$/.test(coord)) {
+            const [x1, y1, x2, y2, angle] = coord.split(",").map(Number);
+            if (x1 <= x2 && y1 <= y2 && x2 <= 1000 && y2 <= 1000 && Number.isSafeInteger(angle)) {
+                const key = `${number}-${boxes.length + 1}`;
+                const w = page.width / 1000, h = page.height / 1000;
+                safe.dataset.segment = key;
+                boxes.push(`<rect class="box page-${number % 2}${kind ? " tag-" + kind : ""}" data-segment="${key}" ` +
+                    `x="${page.offsetX + x1 * w}" y="${y1 * h}" width="${(x2 - x1) * w}" ` +
+                    `height="${(y2 - y1) * h}" vector-effect="non-scaling-stroke">` +
+                    `<title>Fragment ${number}, segment ${boxes.length + 1}, angle ${angle}°</title></rect>`);
+            }
+        }
+        for (const child of node.childNodes) copy(child, safe, kind);
+        parent.append(safe);
+    }
+    for (const child of source.content.childNodes) copy(child, result, "");
+    return {type: "page", pageIndex, fragment: result.innerHTML, boxes: boxes.join(""),
+        segmentCount: boxes.length, finishReason: page.finishReason};
+}
+
+function portableEvents(file, display) {
+    let pages, imageUrl, width, height;
+    const dimension = value => {
+        if (!Number.isSafeInteger(value) || value < 1) throw new Error("Dimensions du document invalides.");
+        return value;
+    };
+
+    function viewer() {
+        let total = 0;
+        const fragments = [], boxes = [];
+        pages.forEach((page, i) => {
+            const view = portablePage(page, i);
+            total += view.segmentCount;
+            const reason = {stop: "stop", length: "length", error: "error"}[page.finishReason];
+            fragments.push(`<section class="fragment" data-page-index="${i}"><h2>Fragment ${i + 1} · ` +
+                `${view.segmentCount} segments <small>(${typeof reason === "string" ? reason : "en cours"})</small></h2>` +
+                `<div class="fragment-body">${view.fragment}</div></section>`);
+            boxes.push(`<g data-page-index="${i}">${view.boxes}</g>`);
+        });
+        const values = {width, height, image: imageUrl, fragments: fragments.join(""), boxes: boxes.join(""), total};
+        return portableViewerShell.replace(/@@(width|height|image|fragments|boxes|total)@@/g,
+            (_, key) => values[key]);
+    }
+
+    return async event => {
+        if (event.type === "metadata") {
+            width = dimension(event.imageWidth);
+            height = dimension(event.imageHeight);
+            pages = event.pages.map((page, i) => {
+                if (page.pageIndex !== i || !Number.isSafeInteger(page.offsetX) || page.offsetX < 0)
+                    throw new Error("Index ou position de page invalide.");
+                return {width: dimension(page.width), height: dimension(page.height),
+                    offsetX: page.offsetX, raw: "", lastUpdate: -Infinity};
+            });
+            imageUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("Impossible de lire l’image."));
+                reader.readAsDataURL(file);
+            });
+            await display({type: "preview", html: viewer()});
+        } else if (event.type === "complete") {
+            if (!pages || pages.some(page => !page.finishReason)) throw new Error("Flux incomplet.");
+            await display({type: "complete", html: viewer(), hasErrors: pages.some(p => p.finishReason === "error")});
+        } else if (["delta", "done", "error"].includes(event.type)) {
+            const i = event.pageIndex;
+            if (!Number.isInteger(i) || !pages?.[i]) throw new Error("Fragment inconnu dans le flux.");
+            const page = pages[i];
+            if (event.type === "delta") {
+                page.raw += event.html;
+                if (performance.now() - page.lastUpdate < 150) return;
+                page.lastUpdate = performance.now();
+            } else {
+                page.finishReason = event.type === "error" ? "error" : event.finishReason;
+            }
+            await display(portablePage(page, i));
+        }
+    };
+}
+</script>
+<script>
+    const picker = document.querySelector("#file");
+    const drop = document.querySelector("#drop");
+    const choose = document.querySelector("#choose");
+    const thumb = document.querySelector("#thumb");
+    const filename = document.querySelector("#filename");
+    const status = document.querySelector("#status");
+    const result = document.querySelector("#result");
+    const save = document.querySelector("#save");
+    const mimeByExtension = {jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp"};
+    let selected = null;
+    let thumbUrl = null;
+    let downloadUrl = null;
+    let busy = false;
+
+    function message(text, error = false) {
+        status.textContent = text;
+        status.classList.toggle("error", error);
+    }
+
+    function clearResult() {
+        result.hidden = true;
+        document.body.classList.remove("viewing");
+        result.removeAttribute("srcdoc");
+        save.hidden = true;
+        save.removeAttribute("href");
+        if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+        downloadUrl = null;
+    }
+
+    function selectFile(file) {
+        if (!file || busy) return;
+        const mime = mimeByExtension[file.name.split(".").pop().toLowerCase()];
+        if (!mime || file.size === 0 || file.size > 30 * 1024 * 1024) {
+            message("Choisissez une image JPEG, PNG ou WebP non vide de 30 Mio maximum.", true);
+            return;
+        }
+        clearResult();
+        if (thumbUrl) URL.revokeObjectURL(thumbUrl);
+        selected = {file, mime};
+        thumbUrl = URL.createObjectURL(file);
+        thumb.src = thumbUrl;
+        thumb.hidden = false;
+        filename.textContent = file.name;
+        filename.title = file.name;
+        transcribe();
+    }
+
+    async function readEvents(response, receive) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = "";
+        try {
+            while (true) {
+                const {value, done} = await reader.read();
+                pending += decoder.decode(value, {stream: !done});
+                let newline;
+                while ((newline = pending.indexOf("\n")) !== -1) {
+                    const line = pending.slice(0, newline);
+                    pending = pending.slice(newline + 1);
+                    if (line) await receive(JSON.parse(line));
+                }
+                if (done) break;
+            }
+            if (pending.trim()) await receive(JSON.parse(pending));
+        } finally {
+            await reader.cancel().catch(() => {});
+            reader.releaseLock();
+        }
+    }
+
+    choose.addEventListener("click", () => picker.click());
+    picker.addEventListener("change", () => {
+        selectFile(picker.files[0]);
+        picker.value = "";
+    });
+    for (const eventName of ["dragover", "drop"]) {
+        window.addEventListener(eventName, event => event.preventDefault());
+    }
+    drop.addEventListener("dragover", () => { if (!busy) drop.classList.add("drag"); });
+    drop.addEventListener("dragleave", event => {
+        if (!drop.contains(event.relatedTarget)) drop.classList.remove("drag");
+    });
+    drop.addEventListener("drop", event => {
+        drop.classList.remove("drag");
+        selectFile(event.dataTransfer.files[0]);
+    });
+    async function transcribe() {
+        if (!selected || busy) return;
+        clearResult();
+        busy = choose.disabled = true;
+        const started = performance.now();
+        const elapsed = () => Math.floor((performance.now() - started) / 1000);
+        const pending = () => message(`Transcription en cours · ${elapsed()} s`);
+        pending();
+        const timer = setInterval(pending, 1000);
+        try {
+            const portable = typeof openPortableTranscription === "function";
+            const response = portable ? await openPortableTranscription(selected.file, selected.mime)
+                : await fetch("/transcribe", {
+                    method: "POST", body: selected.file,
+                    headers: {"Content-Type": selected.mime},
+                });
+            if (!response.ok) throw new Error(await response.text() || `Erreur HTTP ${response.status}`);
+            let complete = false;
+            async function display(item) {
+                if (item.type === "preview") {
+                    const loaded = new Promise(resolve => result.addEventListener("load", resolve, {once: true}));
+                    result.srcdoc = item.html;
+                    result.hidden = false;
+                    document.body.classList.add("viewing");
+                    await loaded;
+                } else if (item.type === "page") {
+                    result.contentWindow.postMessage(item, "*");
+                } else if (item.type === "complete") {
+                    complete = true;
+                    downloadUrl = URL.createObjectURL(new Blob([item.html], {type: "text/html;charset=utf-8"}));
+                    save.href = downloadUrl;
+                    save.download = selected.file.name.replace(/\.[^.]+$/, "") + "-transcription.html";
+                    save.hidden = false;
+                    message(item.hasErrors ? "Transcription partielle : un fragment a échoué."
+                                           : `Transcription terminée en ${elapsed()} s.`, item.hasErrors);
+                } else if (item.type === "error") {
+                    throw new Error(item.message);
+                }
+            }
+            await readEvents(response, portable ? portableEvents(selected.file, display) : display);
+            if (!complete) throw new Error("Le flux de transcription a été interrompu.");
+        } catch (error) {
+            message(error.message || "La transcription a échoué.", true);
+        } finally {
+            clearInterval(timer);
+            busy = choose.disabled = false;
+        }
+    }
+</script>
+</body>
+</html>
