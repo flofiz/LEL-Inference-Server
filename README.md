@@ -79,6 +79,37 @@ RestartSec=10
 
 Le venv est géré avec **uv** (`/home/fizainef/LeLRay/.venv`, Python 3.11).
 
+### Vérifier la migration vLLM 0.34 sur l'A40
+
+Depuis la racine du dépôt, après `uv sync`, avec un GPU disponible :
+
+```bash
+uv run --with pytest pytest tests/test_rswa_kernel.py -v -k 'not recycled_gap'
+```
+
+Ces tests ne démarrent pas Ray et ne chargent aucun modèle. Ils vérifient les
+imports du serveur et de l'extension vLLM, une opération CUDA BF16 et le masque
+RSWA natif de Triton contre une référence FP32. Sous Windows, le test CPU
+des frontières du masque peut s'exécuter sans installer le projet :
+
+```powershell
+uv run --no-project --with pytest --with requests --with pillow pytest tests/test_rswa_kernel.py -v
+```
+
+Le test de régression suivant est à lancer **après** le correctif Triton RSWA :
+il doit rester strictement vert avec des NaN dans un bloc invisible, mais peut
+échouer sur vLLM amont non corrigé.
+
+```bash
+uv run --with pytest pytest tests/test_rswa_kernel.py -v -k recycled_gap
+```
+
+Pour vérifier le serveur et une vraie transcription après redémarrage :
+
+```bash
+uv run --with pytest pytest tests/test_transcribe.py -v --image-path /chemin/page.jpg
+```
+
 ---
 
 ## Modèle
