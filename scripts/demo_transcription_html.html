@@ -96,6 +96,29 @@
         message("Image prête. Cliquez sur Transcrire pour l’envoyer à lel.cotedor.fr.");
     }
 
+    async function readEvents(response, receive) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = "";
+        try {
+            while (true) {
+                const {value, done} = await reader.read();
+                pending += decoder.decode(value, {stream: !done});
+                let newline;
+                while ((newline = pending.indexOf("\n")) !== -1) {
+                    const line = pending.slice(0, newline);
+                    pending = pending.slice(newline + 1);
+                    if (line) await receive(JSON.parse(line));
+                }
+                if (done) break;
+            }
+            if (pending.trim()) await receive(JSON.parse(pending));
+        } finally {
+            await reader.cancel().catch(() => {});
+            reader.releaseLock();
+        }
+    }
+
     choose.addEventListener("click", () => picker.click());
     picker.addEventListener("change", () => {
         selectFile(picker.files[0]);
@@ -127,15 +150,29 @@
                 body: selected.file,
                 headers: {"Content-Type": selected.mime},
             });
-            const body = await response.text();
-            if (!response.ok) throw new Error(body || `Erreur HTTP ${response.status}`);
-            result.srcdoc = body;
-            result.hidden = false;
-            downloadUrl = URL.createObjectURL(new Blob([body], {type: "text/html;charset=utf-8"}));
-            save.href = downloadUrl;
-            save.download = selected.file.name.replace(/\.[^.]+$/, "") + "-transcription.html";
-            save.hidden = false;
-            message(`Transcription terminée en ${elapsed()} s.`);
+            if (!response.ok) throw new Error(await response.text() || `Erreur HTTP ${response.status}`);
+            let complete = false;
+            await readEvents(response, async item => {
+                if (item.type === "preview") {
+                    const loaded = new Promise(resolve => result.addEventListener("load", resolve, {once: true}));
+                    result.srcdoc = item.html;
+                    result.hidden = false;
+                    await loaded;
+                } else if (item.type === "page") {
+                    result.contentWindow.postMessage(item, "*");
+                } else if (item.type === "complete") {
+                    complete = true;
+                    downloadUrl = URL.createObjectURL(new Blob([item.html], {type: "text/html;charset=utf-8"}));
+                    save.href = downloadUrl;
+                    save.download = selected.file.name.replace(/\.[^.]+$/, "") + "-transcription.html";
+                    save.hidden = false;
+                    message(item.hasErrors ? "Transcription partielle : un fragment a échoué."
+                                           : `Transcription terminée en ${elapsed()} s.`, item.hasErrors);
+                } else if (item.type === "error") {
+                    throw new Error(item.message);
+                }
+            });
+            if (!complete) throw new Error("Le flux de transcription a été interrompu.");
         } catch (error) {
             message(error.message || "La transcription a échoué.", true);
         } finally {

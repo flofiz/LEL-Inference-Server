@@ -24,6 +24,7 @@ def test_rswa_checkpoint_long_multimodal_decode(monkeypatch, request):
             name=Path(model).name,
             model=model,
             require_rswa=True,
+            mtp_tokens=int(os.getenv("HTR_MTP_TOKENS", "1")),
             max_model_len=8192,
             max_num_seqs=1,
             max_num_batched_tokens=2048,

@@ -15,7 +15,9 @@ QWEN_VERSION = "qwen35"
 import time
 from processing.postprocessing import postprocess_line, postprocess_output, add_metadata
 from processing.stream_metrics import ScoredLines, score_range, token_text_spans
-from processing.html_output import HTML_CONTEXT_LENGTH, HTML_MAX_TOKENS, unwrap_html_fragment
+from processing.html_output import (
+    HTML_CONTEXT_LENGTH, HTML_MAX_TOKENS, stream_html_fragments, unwrap_html_fragment,
+)
 from templates.tasks.HTML import HTML_PROMPT
 if QWEN_VERSION=="qwen25":
     from templates.system.HTR import SYSTEM
@@ -53,7 +55,7 @@ LINE = rf"{LATIN_CHARS}\t{COORD}\t{COORD}\t{COORD}\t{COORD}\t{ANGLE}\n"
 guided_regex = rf"```tsv\n{LINE}+```"
 class HTREngine:
     def __init__(self, name, *, require_rswa=False, standard_mtp=False, enable_thinking=False,
-                 stat_loggers=None, **kwargs):
+                 stat_loggers=None, mtp_tokens=1, **kwargs):
         """
         Construct a VLLM deployment.
 
@@ -91,11 +93,12 @@ class HTREngine:
         self.enable_thinking = enable_thinking
         self.logger = logging.getLogger("ray.serve")
         self.rswa_policy = discover(kwargs["model"])
+        self.mtp_tokens = mtp_tokens
         if self.rswa_policy is not None:
             from inference.rswa_patch import verify_or_apply
 
-            verify_or_apply()
-            kwargs = engine_options(self.rswa_policy, kwargs)
+            kwargs = engine_options(self.rswa_policy, kwargs, mtp_tokens=mtp_tokens)
+            verify_or_apply(mtp3=mtp_tokens == 3)
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         elif require_rswa:
             raise ValueError("HTR_REQUIRE_RSWA is set but the checkpoint has no RSWA manifest")
@@ -148,6 +151,7 @@ class HTREngine:
         try:
             ranks = await self.engine.collective_rpc("rswa_inspect", timeout=60, args=(window,))
             if (len(ranks) != 1 or ranks[0]["rank"] != 0 or ranks[0]["window"] != window
+                    or ranks[0]["mtp_tokens"] != self.mtp_tokens
                     or not ranks[0]["runtime_enforced"]):
                 raise RuntimeError(f"Missing or incompatible RSWA worker attestation: {ranks!r}")
         except Exception:
@@ -262,7 +266,7 @@ class HTREngine:
         request_dict = {"max_tokens": 4096*3, "logprobs": 1}
         return await self.__call__(request = request, image = contents, prompt = "", metadata = metadata, request_dict = request_dict, stream = stream)
 
-    async def transcribe_html(self, request: Request) -> Response:
+    async def transcribe_html(self, request: Request, stream: bool = False) -> Response:
         from processing.preprocessing import get_inputs
         from vllm.sampling_params import RequestOutputKind, SamplingParams
         from vllm.utils import random_uuid
@@ -280,25 +284,35 @@ class HTREngine:
         sampling = SamplingParams(
             temperature=0.0,
             max_tokens=HTML_MAX_TOKENS,
-            output_kind=RequestOutputKind.FINAL_ONLY,
+            output_kind=RequestOutputKind.DELTA if stream else RequestOutputKind.FINAL_ONLY,
         )
+        pages = [
+            {"offsetX": offset, "width": round(1000 / ratios[0]), "height": round(1000 / ratios[1])}
+            for _, ratios, offset in crops
+        ]
+        outputs = [self.engine.generate(inputs, sampling, request_id=random_uuid()) for inputs, _, _ in crops]
+        if stream:
+            return StreamingResponse(
+                stream_html_fragments(metadata, pages, outputs),
+                media_type="application/x-ndjson",
+                headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache, no-transform"},
+            )
 
-        async def generate_fragment(inputs, ratios, offset):
+        async def generate_fragment(iterator, page):
             output = None
-            async for result in self.engine.generate(inputs, sampling, request_id=random_uuid()):
+            async for result in iterator:
                 output, = result.outputs
             if output is None:
                 raise RuntimeError("vLLM returned no HTML completion")
             return {
                 "html": unwrap_html_fragment(output.text),
-                "offsetX": offset,
-                "width": round(1000 / ratios[0]),
-                "height": round(1000 / ratios[1]),
+                **page,
                 "finishReason": output.finish_reason,
             }
 
         async with asyncio.TaskGroup() as group:
-            tasks = [group.create_task(generate_fragment(*crop)) for crop in crops]
+            tasks = [group.create_task(generate_fragment(iterator, page))
+                     for iterator, page in zip(outputs, pages, strict=True)]
         return JSONResponse({**metadata, "pages": [task.result() for task in tasks]})
 
     #TODO: retranscribe endpoint

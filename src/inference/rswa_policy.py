@@ -93,11 +93,13 @@ def hf_override(policy, config):
     return config
 
 
-def engine_options(policy, kwargs):
+def engine_options(policy, kwargs, *, mtp_tokens=1):
+    if type(mtp_tokens) is not int or mtp_tokens not in (1, 3):
+        raise ValueError("RSWA supports native MTP K=1 or K=3")
     options = {
         "attention_config": {"backend": BACKEND},
         "speculative_config": {
-            "method": "mtp", "num_speculative_tokens": 1, "attention_backend": BACKEND,
+            "method": "mtp", "num_speculative_tokens": mtp_tokens, "attention_backend": BACKEND,
         },
         "enable_prefix_caching": False,
         "async_scheduling": False,
@@ -130,9 +132,10 @@ def assert_config(config, window):
     if (type(window) is not int or window < 1
             or model.architectures != [TARGET] or model.rswa_window != window):
         raise RuntimeError("RSWA target architecture/window mismatch")
-    if (spec is None or spec.method != "mtp" or spec.num_speculative_tokens != 1
-            or spec.parallel_drafting or spec.use_multi_module_mtp()):
-        raise RuntimeError("RSWA requires fixed native sequential MTP K=1")
+    if (spec is None or spec.method != "mtp" or spec.num_speculative_tokens not in (1, 3)
+            or spec.parallel_drafting or spec.use_multi_module_mtp()
+            or spec.uses_dynamic_speculative_decoding() or spec.enable_adaptive_verification):
+        raise RuntimeError("RSWA requires fixed native sequential MTP K=1 or K=3")
     draft = spec.draft_model_config
     if draft.architectures != [DRAFT] or draft.rswa_window != window:
         raise RuntimeError("RSWA draft architecture/window mismatch")

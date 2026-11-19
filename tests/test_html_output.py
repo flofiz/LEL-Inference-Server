@@ -94,3 +94,54 @@ def test_html_transcription_preserves_crop_order_and_budget(html_output, monkeyp
     with pytest.raises(HTTPException) as error:
         asyncio.run(htr.transcribe_html(None))
     assert error.value.status_code == 503
+
+
+def test_html_stream_keeps_each_crops_deltas_ordered(html_output):
+    async def run():
+        right_ready = asyncio.Event()
+
+        def result(text, reason=None):
+            return SimpleNamespace(outputs=[SimpleNamespace(text=text, finish_reason=reason)])
+
+        async def left():
+            yield result("<table>")
+            await right_ready.wait()
+            yield result("</table>", "stop")
+
+        async def right():
+            yield result("<p>Droite</p>", "length")
+            right_ready.set()
+
+        pages = [{"offsetX": 0}, {"offsetX": 100}]
+        return [json.loads(line) async for line in html_output.stream_html_fragments(
+            {"imageWidth": 200}, pages, [left(), right()]
+        )]
+
+    events = asyncio.run(run())
+    assert events[0]["pages"] == [{"pageIndex": 0, "offsetX": 0}, {"pageIndex": 1, "offsetX": 100}]
+    deltas = [(event["pageIndex"], event["html"]) for event in events if event["type"] == "delta"]
+    assert deltas == [(0, "<table>"), (1, "<p>Droite</p>"), (0, "</table>")]
+    assert {event["pageIndex"]: event["finishReason"] for event in events if event["type"] == "done"} == {
+        0: "stop", 1: "length",
+    }
+    assert events[-1] == {"type": "complete"}
+
+
+def test_closing_html_stream_cancels_active_generation(html_output):
+    async def run():
+        closed = asyncio.Event()
+
+        async def output():
+            try:
+                yield SimpleNamespace(outputs=[SimpleNamespace(text="<table>", finish_reason=None)])
+                await asyncio.Future()
+            finally:
+                closed.set()
+
+        stream = html_output.stream_html_fragments({}, [{}], [output()])
+        await anext(stream)  # metadata
+        await anext(stream)  # first delta
+        await stream.aclose()
+        assert closed.is_set()
+
+    asyncio.run(run())

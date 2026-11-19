@@ -65,6 +65,10 @@ class VLLMPredictDeployment:
     async def transcribe_html(self, request: Request) -> Response:
         return await self.engine.transcribe_html(request)
 
+    @app.post("/transcribe/html/stream")
+    async def transcribe_html_stream(self, request: Request) -> Response:
+        return await self.engine.transcribe_html(request, stream=True)
+
     @app.get("/")
     async def health(self):
         return Response(content="ok", status_code=200)
@@ -110,6 +114,7 @@ if __name__ == "__main__":
 
     args["standard_mtp"] = "Qwen3.5" in args["model"]
     args["require_rswa"] = os.getenv("HTR_REQUIRE_RSWA") != "0"
+    args["mtp_tokens"] = int(os.getenv("HTR_MTP_TOKENS", "1"))
     args["enable_thinking"] = os.getenv("HTR_ENABLE_THINKING") == "1"
 
     deployment = VLLMPredictDeployment.bind(**args)

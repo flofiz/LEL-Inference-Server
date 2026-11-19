@@ -110,8 +110,8 @@ uv run --no-sync --with pytest pytest tests/test_rswa_kernel.py -v
 `recycled_gap` doit maintenant passer avec des NaN dans un bloc invisible.
 Le patch ne modifie pas les checkpoints. Ray Serve active RSWA uniquement si
 le manifeste `rswa_training.json` et les métadonnées dans `config.json` sont
-cohérents. La première version exige un Qwen3.5 multimodal BF16 non quantifié,
-un seul GPU et MTP `K=1`.
+cohérents. Le mode RSWA exige un Qwen3.5 multimodal BF16 non quantifié et un
+seul GPU. MTP `K=1` reste le réglage par défaut.
 
 Pour valider le vrai checkpoint avant le démarrage du serveur, sur l'A40 libre :
 
@@ -142,6 +142,25 @@ défaut : un manifeste incomplet ou absent, un patch absent ou un cache
 incompatible fait échouer l'initialisation du réplica, sans repli en full
 attention. Pour servir volontairement un checkpoint standard, définir aussi
 `HTR_REQUIRE_RSWA=0`.
+
+### Essayer MTP3 avec RSWA
+
+Serveur arrêté, dans le venv de l'A40 :
+
+```bash
+.venv/bin/python src/inference/rswa_patch.py --apply --mtp3
+HTR_MTP_TOKENS=3 HTR_RSWA_TEST_MODEL=/chemin/checkpoint-rswa \
+  uv run --no-sync --with pytest pytest tests/test_rswa_checkpoint.py -v -s \
+  --image-path ../FRAD021_B_012126_00013.jpg
+```
+
+L'installation conserve la variante `pruned` si elle est déjà en place.
+MTP3 utilise la même couche MTP en trois étapes séquentielles ; le patch
+transmet le préfixe multimodal complet lors de chaque reconstruction des
+métadonnées. Après le test, démarrer avec `HTR_MTP_TOKENS=3` (par exemple dans
+l'environnement du service systemd). Le réglage s'applique au moteur entier,
+donc aussi aux routes TSV et HTML non streamées. Retirer la variable ou la
+remettre à `1` permet de revenir à MTP1 sans réinstaller vLLM.
 
 ### Thinking Qwen3.5
 
@@ -223,9 +242,23 @@ du modèle : le filtrer avant de l'insérer dans un navigateur.
 
 La génération s'arrête normalement sur EOS, sinon au budget de **16 384 tokens
 par fragment**, dans un contexte de **24 576 tokens**. `finishReason: "length"`
-indique que la sortie peut être incomplète. La route ne streame pas : pour les
-pages longues, utiliser le port local pour les tests ou prévoir un timeout
-plus long côté client et reverse proxy.
+indique que la sortie peut être incomplète.
+
+`POST /transcribe/html/stream` accepte le même upload et renvoie du NDJSON.
+L'événement `metadata` décrit les fragments et leur géométrie. Chaque `delta`
+transmet un morceau de HTML brut (y compris les clôtures Markdown éventuelles)
+avec son `pageIndex` **à partir de zéro** ; `done` ou `error` termine le
+fragment, et `complete` termine le flux. Les fragments peuvent progresser
+en parallèle, mais les morceaux de chaque fragment restent ordonnés.
+
+```bash
+curl -N -sS -F "image=@../FRAD021_10M106_05_0004.jpg" \
+  https://lel.cotedor.fr/transcribe/html/stream
+```
+
+L'API demande au reverse proxy de ne pas mettre cette réponse en tampon
+(`X-Accel-Buffering: no`). Si la démo n'affiche les données qu'à la fin,
+comparer le port local et l'adresse publique avec `curl -N`.
 
 ### Client local de démonstration HTML
 
@@ -239,9 +272,11 @@ Le navigateur s'ouvre sur `http://127.0.0.1:8765/`. Déposer un JPEG, PNG ou Web
 ou cliquer sur **Importer depuis mes fichiers**, puis sur **Transcrire**.
 Le client utilise le serveur public `https://lel.cotedor.fr` via un relais
 local ; aucun changement du serveur, de CORS ou du venv d'inférence n'est
-nécessaire. Python seul suffit. L'image originale et les segments sont
-interactifs à côté du HTML, et l'aperçu peut être téléchargé pour une
-présentation hors ligne.
+nécessaire. Python seul suffit. Le client utilise la route HTML streamée :
+les segments et la transcription apparaissent au fil des morceaux reçus.
+Le navigateur ferme provisoirement les balises ouvertes (par exemple un
+tableau, à compléter au prochain morceau). À la fin, l'aperçu peut toujours
+être téléchargé pour une présentation hors ligne.
 
 ---
 

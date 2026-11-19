@@ -95,14 +95,20 @@ const overlay = document.querySelector("#overlay");
 const scan = document.querySelector(".scan");
 const zoom = document.querySelector("#zoom");
 const pairs = new Map();
-for (const element of document.querySelectorAll("[data-segment]")) {
-    const key = element.dataset.segment;
-    if (!pairs.has(key)) pairs.set(key, []);
-    pairs.get(key).push(element);
+function indexSegments() {
+    pairs.clear();
+    for (const element of document.querySelectorAll("[data-segment]")) {
+        const key = element.dataset.segment;
+        if (!pairs.has(key)) pairs.set(key, []);
+        pairs.get(key).push(element);
+    }
 }
+indexSegments();
 let active = [];
+let activeKey = null;
 function select(key) {
     for (const element of active) element.classList.remove("active");
+    activeKey = key;
     active = pairs.get(key) || [];
     for (const element of active) element.classList.add("active");
     const [fragment, index] = key.split("-");
@@ -126,20 +132,53 @@ zoom.addEventListener("input", () => {
     scan.querySelector("svg").style.width = zoom.value + "%";
     document.querySelector("#zoom-value").textContent = zoom.value + "%";
 });
+window.addEventListener("message", event => {
+    if (window.parent === window || event.source !== window.parent || event.data?.type !== "page") return;
+    const {pageIndex, fragment, boxes, segmentCount, finishReason} = event.data;
+    if (!Number.isInteger(pageIndex)) return;
+    const page = document.querySelector(`.fragment[data-page-index="${pageIndex}"]`);
+    const group = scan.querySelector(`g[data-page-index="${pageIndex}"]`);
+    if (!page || !group) return;
+    // Only sanitized markup from the local relay reaches these containers.
+    // The browser closes open table/paragraph tags provisionally.
+    const content = page.querySelector(".fragment-body");
+    const left = content.scrollLeft;
+    content.innerHTML = fragment;
+    content.scrollLeft = left;
+    group.innerHTML = boxes;
+    page.querySelector("h2").textContent =
+        `Fragment ${pageIndex + 1} · ${segmentCount} segments (${finishReason || "en cours"})`;
+    document.querySelector("#segment-count").textContent = scan.querySelectorAll(".box").length;
+    indexSegments();
+    if (activeKey && pairs.has(activeKey)) select(activeKey);
+});
 """
+
+
+def render_page(page, index, *, partial=False):
+    fragment = Fragment(page, index + 1)
+    fragment.feed(page["html"])
+    if not partial:
+        fragment.close()
+    return {
+        "type": "page", "pageIndex": index,
+        "fragment": "".join(fragment.parts), "boxes": "".join(fragment.boxes),
+        "segmentCount": len(fragment.boxes), "finishReason": page.get("finishReason"),
+    }
 
 
 def render(report, image, image_mime="image/jpeg"):
     fragments, boxes = [], []
-    for number, page in enumerate(report["pages"], 1):
-        fragment = Fragment(page, number)
-        fragment.feed(page["html"])
-        fragment.close()
-        boxes.extend(fragment.boxes)
-        reason = escape(str(page.get("finishReason", "")))
+    total = 0
+    for index, page in enumerate(report["pages"]):
+        fragment = render_page(page, index)
+        total += fragment["segmentCount"]
+        boxes.append(f'<g data-page-index="{index}">{fragment["boxes"]}</g>')
+        reason = escape(str(fragment["finishReason"] or "en cours"))
         fragments.append(
-            f'<section class="fragment"><h2>Fragment {number} · {len(fragment.boxes)} segments'
-            f' <small>({reason})</small></h2><div>{"".join(fragment.parts)}</div></section>'
+            f'<section class="fragment" data-page-index="{index}"><h2>Fragment {index + 1} · '
+            f'{fragment["segmentCount"]} segments <small>({reason})</small></h2>'
+            f'<div class="fragment-body">{fragment["fragment"]}</div></section>'
         )
     width, height = int(report["imageWidth"]), int(report["imageHeight"])
     script_hash = b64encode(sha256(SCRIPT.encode()).digest()).decode()
@@ -148,7 +187,7 @@ def render(report, image, image_mime="image/jpeg"):
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-{script_hash}'">
 <title>Aperçu de la transcription</title><style>{STYLE}</style></head>
-<body><header class="bar"><h1>Image et transcription · {len(boxes)} segments</h1>
+<body><header class="bar"><h1>Image et transcription · <span id="segment-count">{total}</span> segments</h1>
 <div class="controls">
 <label><input id="overlay" type="checkbox" checked>Afficher les segments</label>
 <label>Zoom <input id="zoom" type="range" min="100" max="350" step="10" value="100"> <output id="zoom-value">100%</output></label>

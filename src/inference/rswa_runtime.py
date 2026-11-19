@@ -95,12 +95,15 @@ class RSWAWorkerExtension:
 
         gdn = [m for m in target.language_model.modules()
                if isinstance(m, QwenGatedDeltaNetAttention)]
+        mtp_tokens = config.speculative_config.num_speculative_tokens
+        if mtp_tokens == 3 and self.model_runner.speculator.supports_decode_metadata_update:
+            raise RuntimeError("RSWA MTP3 requires fresh attention metadata per draft step")
         if not gdn or any(
             not isinstance(spec := layer.get_kv_cache_spec(config), MambaSpec)
-            or spec.dtypes[-1] != torch.float32 or spec.num_speculative_blocks != 1
+            or spec.dtypes[-1] != torch.float32 or spec.num_speculative_blocks != mtp_tokens
             for layer in gdn
         ):
-            raise RuntimeError("RSWA requires GDN FP32 recurrent state with native MTP K=1")
+            raise RuntimeError(f"RSWA requires GDN FP32 recurrent state with native MTP K={mtp_tokens}")
 
         for role, layers in checked.items():
             for index, layer in enumerate(layers):
@@ -109,5 +112,6 @@ class RSWAWorkerExtension:
                 )
         return {"rank": self.rank, "window": window, "target": len(checked["target"]),
                 "draft": len(checked["draft"]), "gdn": len(gdn), "runtime_enforced": True,
+                "mtp_tokens": mtp_tokens,
                 "block_size": max(layer.get_kv_cache_spec(config).block_size
                                   for layer in checked["target"])}

@@ -106,13 +106,82 @@ PRUNED_EDITS = (
     ),
 )
 
+SPEC_PATH = "vllm/v1/worker/gpu/spec_decode/speculator.py"
+AR_SPEC_PATH = "vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py"
+MTP_ORIGINAL_HASHES = {
+    SPEC_PATH: "3087a6b61c8ac534e06175903d7c4d94a61d52e90691894d7d89c996f8fbc8c7",
+    AR_SPEC_PATH: "fb722001fd6f70c0202d4eacc6660a4fb01b265a45a286e4ed1c07c6dd623fa3",
+}
+MTP_PATCHED_HASHES = {
+    SPEC_PATH: "f0c14a3a5df0772a70e7684f6ad7bda608f732612e4268262f221e625469bf50",
+    AR_SPEC_PATH: "2c49b9712ef5a8c86f85f6edc5d60b2a0ba1bc1a8c76565b009e68e98ac737b1",
+}
+MTP_EDITS = {
+    SPEC_PATH: (
+        (
+            b"        slot_mappings: torch.Tensor | None = None,\n    ) -> dict[str, Any] | None:\n",
+            b"        slot_mappings: torch.Tensor | None = None,\n"
+            b"        rswa_prefix_lens: torch.Tensor | None = None,\n    ) -> dict[str, Any] | None:\n",
+        ),
+        (
+            b"            is_prefilling=self.draft_is_prefilling[:num_reqs_padded],\n",
+            b"            is_prefilling=self.draft_is_prefilling[:num_reqs_padded],\n"
+            b"            rswa_prefix_lens=rswa_prefix_lens,\n",
+        ),
+        (
+            b"    ) -> dict[str, Any] | None:\n        query_start_loc_np = self.arange_np",
+            b"        rswa_prefix_lens: torch.Tensor | None = None,\n"
+            b"    ) -> dict[str, Any] | None:\n        query_start_loc_np = self.arange_np",
+        ),
+        (
+            b"        )\n\n    def _update_draft_decode_metadata(\n",
+            b"            rswa_prefix_lens=rswa_prefix_lens,\n"
+            b"        )\n\n    def _update_draft_decode_metadata(\n",
+        ),
+    ),
+    AR_SPEC_PATH: (
+        (
+            b"            num_speculative_steps,\n        )\n        self.on_multi_step_decode_end(num_reqs)\n",
+            b"            num_speculative_steps,\n"
+            b"            rswa_prefix_lens=(input_batch.prompt_lens[:num_reqs]\n"
+            b"                              if input_batch.prompt_lens is not None else None),\n"
+            b"        )\n        self.on_multi_step_decode_end(num_reqs)\n",
+        ),
+        (
+            b"    ) -> None:\n        positions = self.input_buffers.positions[:num_reqs]\n"
+            b"        query_start_loc = self.input_buffers.query_start_loc[: num_reqs + 1]\n"
+            b"        idx_mapping = self.idx_mapping[:num_reqs]\n",
+            b"        rswa_prefix_lens: torch.Tensor | None = None,\n"
+            b"    ) -> None:\n        positions = self.input_buffers.positions[:num_reqs]\n"
+            b"        query_start_loc = self.input_buffers.query_start_loc[: num_reqs + 1]\n"
+            b"        idx_mapping = self.idx_mapping[:num_reqs]\n",
+        ),
+        (
+            b"                    step=step,\n                )\n",
+            b"                    step=step,\n                    rswa_prefix_lens=rswa_prefix_lens,\n                )\n",
+        ),
+        (
+            b"    ) -> None:\n        if batch_desc.cg_mode == CUDAGraphMode.FULL:\n"
+            b"            self._map_kernel_block_tables()\n",
+            b"        rswa_prefix_lens: torch.Tensor | None = None,\n"
+            b"    ) -> None:\n        if batch_desc.cg_mode == CUDAGraphMode.FULL:\n"
+            b"            self._map_kernel_block_tables()\n",
+        ),
+        (
+            b"                step=1,\n            )\n\n        self._fused_multi_step_decode(",
+            b"                step=1,\n                rswa_prefix_lens=rswa_prefix_lens,\n"
+            b"            )\n\n        self._fused_multi_step_decode(",
+        ),
+    ),
+}
+
 
 def digest(source):
     return hashlib.sha256(source).hexdigest()
 
 
 def transform(path, source, edits=None):
-    for old, new in EDITS[path] if edits is None else edits:
+    for old, new in (EDITS | MTP_EDITS)[path] if edits is None else edits:
         if source.count(old) != 1:
             raise RuntimeError(f"Expected exactly one RSWA patch anchor in {path}")
         source = source.replace(old, new, 1)
@@ -120,7 +189,7 @@ def transform(path, source, edits=None):
     return source
 
 
-def verify_or_apply(*, apply=False, variant=None):
+def verify_or_apply(*, apply=False, variant=None, mtp3=False):
     """Refuse unknown source files, even if they have the expected wheel version."""
     if variant is not None and (not apply or variant not in ("baseline", "pruned")):
         raise ValueError("A patch variant requires apply=True and must be baseline or pruned")
@@ -130,16 +199,19 @@ def verify_or_apply(*, apply=False, variant=None):
 
     changes = []
     current_variant = "baseline"
-    for path, original_hash in ORIGINAL_HASHES.items():
+    originals = ORIGINAL_HASHES | (MTP_ORIGINAL_HASHES if mtp3 else {})
+    expected_baseline = PATCHED_HASHES | (MTP_PATCHED_HASHES if mtp3 else {})
+    for path, original_hash in originals.items():
         target = Path(installed.locate_file(path))
         source = target.read_bytes()
         source_hash = digest(source)
         is_original = source_hash == original_hash
         is_pruned = path == TRITON_PATH and source_hash == PRUNED_TRITON_HASH
-        if not is_original and not is_pruned and source_hash != PATCHED_HASHES[path]:
+        if not is_original and not is_pruned and source_hash != expected_baseline[path]:
             raise RuntimeError(f"Unexpected source SHA256 for {target}: {source_hash}")
         if is_original and not apply:
-            raise RuntimeError(f"RSWA patch missing from {target}; run with --apply")
+            option = "--apply --mtp3" if path in MTP_EDITS else "--apply"
+            raise RuntimeError(f"RSWA patch missing from {target}; run with {option}")
 
         patched = transform(path, source) if is_original else source
         if path == TRITON_PATH:
@@ -152,7 +224,7 @@ def verify_or_apply(*, apply=False, variant=None):
                 current_variant = variant
         expected = (
             PRUNED_TRITON_HASH if path == TRITON_PATH and current_variant == "pruned"
-            else PATCHED_HASHES[path]
+            else expected_baseline[path]
         )
         if digest(patched) != expected:
             raise RuntimeError(f"Unexpected patched SHA256 for {target}")
@@ -176,14 +248,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Patch the installed wheel")
     parser.add_argument("--variant", choices=("baseline", "pruned"), help="Select a patch variant with --apply")
+    parser.add_argument("--mtp3", action="store_true", help="Include the sequential MTP3 metadata patch")
     args = parser.parse_args()
     if args.variant is not None and not args.apply:
         parser.error("--variant requires --apply")
     try:
-        variant = verify_or_apply(apply=args.apply, variant=args.variant)
+        variant = verify_or_apply(apply=args.apply, variant=args.variant, mtp3=args.mtp3)
     except (OSError, RuntimeError, PackageNotFoundError) as exc:
         parser.exit(1, f"RSWA: {exc}\n")
-    print(f"RSWA {variant} patch verified for vLLM {VLLM_VERSION}")
+    print(f"RSWA {variant} patch verified for vLLM {VLLM_VERSION}" + (" (with MTP3)" if args.mtp3 else ""))
 
 
 if __name__ == "__main__":
