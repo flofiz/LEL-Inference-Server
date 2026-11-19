@@ -5,16 +5,16 @@ description = "An Inference framework for LeL2.0 with support for Qwen"
 requires-python = "==3.11.11"   # évite la résolution pour 3.13/3.14
 
 dependencies = [
-  "torch==2.13.0+cu130",
-  "transformers",
-  "vllm==0.29",
+  "torch==2.14.0+cu130",
+  "transformers>=5.16.1,<5.23.0",
+  "vllm==0.34.0",
   "flash-attn",
   "flash-linear-attention",
   "causal_conv1d",
   "ray[default]",
   "qwen_vl_utils",
-  "torchvision==0.28.0",
-  "torchaudio",
+  "torchvision==0.29.0+cu130",
+  "torchaudio==2.11.0+cu130",
   "shapely"
 ]
 
@@ -40,12 +40,6 @@ causal_conv1d = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0" }
 
 [tool.uv]
 environments = ["sys_platform == 'linux'"]
-override-dependencies = [
-  "torch==2.13.0+cu130",
-  "transformers",
-  "vllm==0.29",
-  "torchvision==0.28.0+cu130",
-]
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
