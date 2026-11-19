@@ -9,12 +9,11 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse, Response
 from inference.rswa_policy import assert_config, discover, engine_options
 
-from ray import serve
-
 QWEN_VERSION = "qwen35"
 
 import time
 from processing.postprocessing import postprocess_line, postprocess_output, add_metadata
+from processing.stream_metrics import ScoredLines, score_range, token_text_spans
 if QWEN_VERSION=="qwen25":
     from templates.system.HTR import SYSTEM
     from templates.tasks.HTR import PROMPT
@@ -159,66 +158,48 @@ class HTREngine:
         return {"model": self.name}
 
     async def stream_results(self, results_generator, params) -> AsyncGenerator[bytes, None]:
-        num_returned = 0
-        ret = ""
-        line_perplexities = []
-        file_perplexities = []
-        char_perplexities = []
-        file_perplexity = 0
-        line_perplexity = 0
+        lines = ScoredLines()
+        file_logprob = char_logprob = 0.0
         file_length = 0
-        line_length = 0
-        char_ppl_count = 0
-        char_logprob = 0
-        is_char_seq = True
+        char_ppl_count = 0.0
+        special_ids = set(self.engine.get_tokenizer().all_special_ids)
         async for request_output in results_generator:
-            text_outputs = [output.text for output in request_output.outputs]
-            logprobs = [output.logprobs for output in request_output.outputs]
-            assert len(text_outputs) == 1
-            logprob = logprobs[0][-1] if logprobs else None
-            text_output = text_outputs[0][num_returned:]
-            token_logprob = list(logprob.values())[0].logprob
-            # token_perplexity = 2 ** (-token_logprob)
-            file_perplexity += token_logprob
-            file_length += 1
-            ret += text_output
-            line_perplexity += token_logprob
-            line_length += 1
-            if is_char_seq:
-                if text_output=="\t":
-                    is_char_seq = False
-                    char_perplexities.append(math.exp(-line_perplexity/line_length) if line_length>0 else 0)
-                else:
-                    char_logprob += token_logprob
-                    char_ppl_count += 1
-            # Utiliser une boucle while pour gérer les tokens multi-caractères
-            # qui peuvent contenir \n (ex: ".\n", "\t0\n") — if text_output == "\n"
-            # manquait ces cas et causait des lignes non splitées en non-stream.
-            while "\n" in ret:
-                newline_idx = ret.index("\n")
-                line = ret[:newline_idx + 1]
-                ret = ret[newline_idx + 1:]
-                if not "```" in line:
-                    line_perplexities.append(math.exp(-line_perplexity/line_length) if line_length>0 else 0)
+            output, = request_output.outputs
+            selected = [
+                (token, probs[token])
+                for token, probs in zip(output.token_ids, output.logprobs or (), strict=True)
+            ]
+            file_logprob += sum(prob.logprob for _, prob in selected)
+            file_length += len(selected)
+            for text, logprob, weight in token_text_spans(output.text, selected, special_ids):
+                for spans in lines.push(text, logprob, weight):
+                    line = "".join(piece for piece, _, _ in spans)
+                    if "```" in line:
+                        continue
                     try:
-                        processed = postprocess_line(line, char_perplexity=char_perplexities[-1] if char_perplexities else 0, line_perplexity=line_perplexities[-1] if line_perplexities else 0, *params)
-                        yield (json.dumps(processed) + "\n").encode("utf-8")
-                    except Exception as e:
-                        self.logger.error(f"Erreur lors du traitement de la ligne: {line}. Détails de l'erreur: {e}", exc_info=True)
-                is_char_seq = True
-                line_perplexity = 0
-                line_length = 0
-                    
-            num_returned += len(text_output)
+                        processed = postprocess_line(line, *params)
+                    except Exception:
+                        self.logger.exception("Format de ligne inattendu : %s", line)
+                        continue
+                    line_sum, line_count = score_range(spans)
+                    label = processed["label"]
+                    start = len(line) - len(line.lstrip())
+                    char_sum, char_count = score_range(spans, start, start + len(label))
+                    char_logprob += char_sum
+                    char_ppl_count += char_count
+                    processed["line_perplexity"] = round(math.exp(-line_sum / line_count), 3) if line_count else 0
+                    processed["char_perplexity"] = round(math.exp(-char_sum / char_count), 3) if char_count else 0
+                    yield (json.dumps(processed) + "\n").encode("utf-8")
         metadata = {
             "metrics": {
-                "file_perplexity": file_perplexity,
+                "file_perplexity": file_logprob,
                 "file_length": file_length,
                 "char_perplexity": char_logprob,
                 "char_ppl_count": char_ppl_count,
             }
         }
-        yield (json.dumps(metadata) + "\n").encode("utf-8")    
+        yield (json.dumps(metadata) + "\n").encode("utf-8")
+
     async def stream_multiple_results(self, generators_infos: List, pages_params: List, metadata: Dict) -> AsyncGenerator[bytes, None]:
         queue = asyncio.Queue()
         metadata_json = json.dumps({"metadata": metadata}) + "\n"
@@ -279,7 +260,7 @@ class HTREngine:
         - other fields: the sampling parameters (See `SamplingParams` for details).
         """
         from processing.preprocessing import get_inputs
-        from vllm.sampling_params import SamplingParams, StructuredOutputsParams
+        from vllm.sampling_params import RequestOutputKind, SamplingParams, StructuredOutputsParams
         from vllm.utils import random_uuid
         
         # stream = request_dict.pop("stream", False)
@@ -293,7 +274,11 @@ class HTREngine:
         if stream:
             background_tasks = BackgroundTasks()
         guided_decoding_params = StructuredOutputsParams(regex=latin1_regex)
-        sampling_params = SamplingParams(structured_outputs=guided_decoding_params, **request_dict)
+        sampling_params = SamplingParams(
+            structured_outputs=guided_decoding_params,
+            output_kind=RequestOutputKind.DELTA,
+            **request_dict,
+        )
         loop = asyncio.get_event_loop()
         input_list = await loop.run_in_executor(
             None,
@@ -359,4 +344,3 @@ class HTREngine:
             output = add_metadata(all_shapes, metadata)
             self.logger.info(f"[CALL END] duration={time.time()-t0:.3f}s")
             return Response(content=json.dumps(output))
-
