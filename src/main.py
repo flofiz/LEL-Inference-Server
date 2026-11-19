@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from ray import serve
 from api.routes import create_routes
 from starlette.responses import StreamingResponse, Response
@@ -39,7 +40,7 @@ app.add_middleware(MaintenanceMiddleware)
                   max_ongoing_requests=100)
 @serve.ingress(app)
 class VLLMPredictDeployment:
-    def __init__(self, **engine_kwargs):
+    async def __init__(self, **engine_kwargs):
         import logging
     
         class FilterHealthCheck(logging.Filter):
@@ -47,7 +48,14 @@ class VLLMPredictDeployment:
                 msg = record.getMessage()
                 return not ("GET / 200" in msg or "GET / 404" in msg)
         logging.getLogger("ray.serve").addFilter(FilterHealthCheck())
-        self.engine = HTREngine(name = engine_kwargs["model"].split("/")[-1],**engine_kwargs)
+        self.engine = HTREngine(name=Path(engine_kwargs["model"]).name, **engine_kwargs)
+        await self.engine.verify_ready()
+
+    def __del__(self):
+        engine = getattr(self, "engine", None)
+        if engine is not None:
+            engine.shutdown()
+
     @app.post("/transcribe")
     async def transcribe(self, request: Request) -> Response:
         return await self.engine.transcribe(request)
@@ -80,7 +88,7 @@ if __name__ == "__main__":
         dashboard_host="127.0.0.1",
     )
     args = {
-        "model": "/home/fizainef/Weights/Qwen3.5-4B-15092026",
+        "model": os.getenv("HTR_MODEL_PATH", "/home/fizainef/Weights/Qwen3.5-4B-15092026"),
         "max_num_seqs": 90,
         "max_model_len": 8192,
         "max_num_batched_tokens": 16384,
@@ -92,11 +100,8 @@ if __name__ == "__main__":
         },
     }
 
-    if "Qwen3.5" in args["model"]:
-        args["speculative_config"] = {
-            "method": "mtp",
-            "num_speculative_tokens": 2,
-        }
+    args["standard_mtp"] = "Qwen3.5" in args["model"]
+    args["require_rswa"] = os.getenv("HTR_REQUIRE_RSWA") == "1"
 
     deployment = VLLMPredictDeployment.bind(**args)
     # deployment = VLLMPredictDeployment.bind(

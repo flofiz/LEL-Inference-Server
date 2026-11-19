@@ -1,24 +1,19 @@
 import json
 import math
+import os
 from typing import AsyncGenerator
 
 from time import sleep
 from fastapi import BackgroundTasks
 from starlette.requests import Request
 from starlette.responses import StreamingResponse, Response
-from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.engine.async_llm_engine import AsyncLLMEngine
-from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
-from vllm.sampling_params import SamplingParams
-from vllm.sampling_params import StructuredOutputsParams
-from vllm.utils import random_uuid
+from inference.rswa_policy import assert_config, discover, engine_options
 
 from ray import serve
 
 QWEN_VERSION = "qwen35"
 
 import time
-from processing.preprocessing import prepare_image
 from processing.postprocessing import postprocess_line, postprocess_output, add_metadata
 if QWEN_VERSION=="qwen25":
     from templates.system.HTR import SYSTEM
@@ -30,7 +25,6 @@ from PIL import Image
 from io import BytesIO
 import base64
 import numpy as np
-from processing.preprocessing import get_inputs
 import asyncio
 from typing import List, Dict
 
@@ -56,7 +50,7 @@ LINE = rf"{LATIN_CHARS}\t{COORD}\t{COORD}\t{COORD}\t{COORD}\t{ANGLE}\n"
 
 guided_regex = rf"```tsv\n{LINE}+```"
 class HTREngine:
-    def __init__(self, name, **kwargs):
+    def __init__(self, name, *, require_rswa=False, standard_mtp=False, **kwargs):
         """
         Construct a VLLM deployment.
 
@@ -92,6 +86,21 @@ class HTREngine:
         """
         self.name = name
         self.logger = logging.getLogger("ray.serve")
+        self.rswa_policy = discover(kwargs["model"])
+        if self.rswa_policy is not None:
+            from inference.rswa_patch import verify_or_apply
+
+            verify_or_apply()
+            kwargs = engine_options(self.rswa_policy, kwargs)
+            os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+        elif require_rswa:
+            raise ValueError("HTR_REQUIRE_RSWA is set but the checkpoint has no RSWA manifest")
+        elif standard_mtp:
+            kwargs.setdefault("speculative_config", {"method": "mtp", "num_speculative_tokens": 2})
+
+        from vllm.engine.arg_utils import AsyncEngineArgs
+        from vllm.engine.async_llm_engine import AsyncLLMEngine
+        from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
 
         # 1. Configurer le handler de redirection AVANT la création de l'engine
         handler = _VLLMToRayHandler(self.logger)
@@ -103,9 +112,19 @@ class HTREngine:
 
         # 2. Créer l'engine (vllm va créer des loggers enfants ici)
         args = AsyncEngineArgs(**kwargs)
-        self.engine = AsyncLLMEngine.from_engine_args(
-            args, stat_loggers=[RayPrometheusStatLogger]
-        )
+        if self.rswa_policy is None:
+            self.engine = AsyncLLMEngine.from_engine_args(
+                args, stat_loggers=[RayPrometheusStatLogger]
+            )
+        else:
+            config = args.create_engine_config()
+            assert_config(config, self.rswa_policy.window)
+            self.engine = AsyncLLMEngine.from_vllm_config(
+                config,
+                stat_loggers=[RayPrometheusStatLogger],
+                enable_log_requests=args.enable_log_requests,
+                disable_log_stats=args.disable_log_stats,
+            )
 
         # 3. Nettoyer tous les loggers enfants vllm.* créés pendant l'init
         #    → les laisser propager vers vllm_root (qui a notre handler)
@@ -113,7 +132,28 @@ class HTREngine:
             if name.startswith("vllm") and isinstance(lgr, logging.Logger):
                 lgr.handlers.clear()
                 lgr.propagate = True  # remonte vers vllm_root → notre handler
-    
+
+    async def verify_ready(self):
+        if self.rswa_policy is None:
+            return
+        window = self.rswa_policy.window
+        try:
+            ranks = await self.engine.collective_rpc("rswa_inspect", timeout=60, args=(window,))
+            if (len(ranks) != 1 or ranks[0]["rank"] != 0 or ranks[0]["window"] != window
+                    or not ranks[0]["runtime_enforced"]):
+                raise RuntimeError(f"Missing or incompatible RSWA worker attestation: {ranks!r}")
+        except Exception:
+            self.shutdown()
+            raise
+        self.logger.info("RSWA ready: %s", ranks[0])
+        return ranks[0]
+
+    def shutdown(self):
+        engine = getattr(self, "engine", None)
+        if engine is not None:
+            self.engine = None
+            engine.shutdown()
+
     def get_model_info(self):
         return {"model": self.name}
 
@@ -231,6 +271,9 @@ class HTREngine:
 
     async def __call__(self, request: Request, image: Image, prompt: str, metadata: dict, request_dict: dict, stream: bool = False) -> Response:
         """Generate completion for the request.
+        from processing.preprocessing import get_inputs
+        from vllm.sampling_params import SamplingParams, StructuredOutputsParams
+        from vllm.utils import random_uuid
 
         The request should be a JSON object with the following fields:
         - prompt: the prompt to use for the generation.

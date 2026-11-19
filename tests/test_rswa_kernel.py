@@ -39,8 +39,11 @@ def test_runtime_imports_and_bf16(cuda_torch, monkeypatch):
 
     # In vLLM 0.34, CUDA ops moved from _C to _C_stable_libtorch.
     import vllm._C_stable_libtorch  # noqa: F401
+    from vllm.engine.arg_utils import AsyncEngineArgs  # noqa: F401
+    from vllm.engine.async_llm_engine import AsyncLLMEngine  # noqa: F401
 
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "src"))
+    from inference.rswa_runtime import RSWAScheduler, RSWAWorkerExtension  # noqa: F401
     from main import VLLMPredictDeployment  # noqa: F401 — import without starting Ray
 
     x = torch.ones((16, 16), device="cuda", dtype=torch.bfloat16)

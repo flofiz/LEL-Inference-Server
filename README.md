@@ -108,8 +108,32 @@ uv run --no-sync --with pytest pytest tests/test_rswa_kernel.py -v
 ```
 
 `recycled_gap` doit maintenant passer avec des NaN dans un bloc invisible.
-Le patch ne modifie pas les checkpoints et n'active pas RSWA dans Ray Serve
-à lui seul.
+Le patch ne modifie pas les checkpoints. Ray Serve active RSWA uniquement si
+le manifeste `rswa_training.json` et les métadonnées dans `config.json` sont
+cohérents. La première version exige un Qwen3.5 multimodal BF16 non quantifié,
+un seul GPU et MTP `K=1`.
+
+Pour valider le vrai checkpoint avant le démarrage du serveur, sur l'A40 libre :
+
+```bash
+HTR_RSWA_TEST_MODEL=/chemin/checkpoint-rswa uv run --no-sync --with pytest \
+  pytest tests/test_rswa_checkpoint.py -v -s --image-path /chemin/page.jpg
+```
+
+Le test force une sortie assez longue pour laisser au moins un bloc évictable
+et vérifie que les log-probabilités générées sont finies. Rechercher `RSWA target
+ran`, `RSWA draft ran` et `RSWA first KV eviction` dans les logs.
+
+Pour démarrer Ray Serve avec ce checkpoint local :
+
+```bash
+HTR_MODEL_PATH=/chemin/checkpoint-rswa HTR_REQUIRE_RSWA=1 \
+  uv run --no-sync python src/main.py
+```
+
+`HTR_REQUIRE_RSWA=1` empêche de démarrer si le chemin désigne par erreur un
+modèle standard. Un manifeste incomplet, un patch absent ou un cache incompatible
+fait échouer l'initialisation du réplica, sans repli en full attention.
 
 Pour vérifier le serveur et une vraie transcription après redémarrage :
 
