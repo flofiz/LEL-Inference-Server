@@ -33,11 +33,12 @@ def cuda_torch():
 
 def test_runtime_imports_and_bf16(cuda_torch, monkeypatch):
     torch = cuda_torch
-    import vllm._C  # noqa: F401 — check that the compiled extension loads
-
     assert version("vllm") == "0.34.0"
     assert torch.__version__ == "2.14.0+cu130"
     assert version("torchvision") == "0.29.0+cu130"
+
+    # In vLLM 0.34, CUDA ops moved from _C to _C_stable_libtorch.
+    import vllm._C_stable_libtorch  # noqa: F401
 
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "src"))
     from main import VLLMPredictDeployment  # noqa: F401 — import without starting Ray
