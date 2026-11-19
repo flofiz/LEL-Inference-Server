@@ -96,13 +96,20 @@ des frontières du masque peut s'exécuter sans installer le projet :
 uv run --no-project --with pytest --with requests --with pillow pytest tests/test_rswa_kernel.py -v
 ```
 
-Le test de régression suivant est à lancer **après** le correctif Triton RSWA :
-il doit rester strictement vert avec des NaN dans un bloc invisible, mais peut
-échouer sur vLLM amont non corrigé.
+Pour tester le patch RSWA sur l'A40, dans l'environnement de test et serveur
+arrêté, appliquer puis vérifier le patch Python de la roue vLLM (sans
+recompilation). Le script refuse toute version ou source différente de celle
+auditée et peut être relancé sans réappliquer le patch.
 
 ```bash
-uv run --with pytest pytest tests/test_rswa_kernel.py -v -k recycled_gap
+uv run --no-sync python src/inference/rswa_patch.py --apply
+uv run --no-sync python src/inference/rswa_patch.py
+uv run --no-sync --with pytest pytest tests/test_rswa_kernel.py -v
 ```
+
+`recycled_gap` doit maintenant passer avec des NaN dans un bloc invisible.
+Le patch ne modifie pas les checkpoints et n'active pas RSWA dans Ray Serve
+à lui seul.
 
 Pour vérifier le serveur et une vraie transcription après redémarrage :
 
