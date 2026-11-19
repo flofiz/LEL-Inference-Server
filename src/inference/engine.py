@@ -271,15 +271,15 @@ class HTREngine:
 
     async def __call__(self, request: Request, image: Image, prompt: str, metadata: dict, request_dict: dict, stream: bool = False) -> Response:
         """Generate completion for the request.
-        from processing.preprocessing import get_inputs
-        from vllm.sampling_params import SamplingParams, StructuredOutputsParams
-        from vllm.utils import random_uuid
 
         The request should be a JSON object with the following fields:
         - prompt: the prompt to use for the generation.
         - stream: whether to stream the results or not.
         - other fields: the sampling parameters (See `SamplingParams` for details).
         """
+        from processing.preprocessing import get_inputs
+        from vllm.sampling_params import SamplingParams, StructuredOutputsParams
+        from vllm.utils import random_uuid
         
         # stream = request_dict.pop("stream", False)
         import time
