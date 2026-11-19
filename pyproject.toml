@@ -8,9 +8,6 @@ dependencies = [
   "torch==2.14.0+cu130",
   "transformers>=5.16.1,<5.23.0",
   "vllm==0.34.0",
-  "flash-attn",
-  "flash-linear-attention",
-  "causal_conv1d",
   "ray[default]",
   "qwen_vl_utils",
   "torchvision==0.29.0+cu130",
@@ -25,18 +22,11 @@ torchaudio = { index = "pytorch-cu130" }
 
 
 [tool.uv.extra-build-dependencies]
-flash-attn             = [{ requirement = "torch", match-runtime = true }]
-flash-linear-attention = [{ requirement = "torch", match-runtime = true }]
-causal_conv1d          = [{ requirement = "torch", match-runtime = true }]
-# unsloth                = [{ requirement = "torch", match-runtime = true }]
 vllm                   = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.extra-build-variables]
-flash-attn    = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0" , NVCC_APPEND_FLAGS = "-gencode arch=compute_80,code=sm_80"}
 # Pour vLLM : prend aussi en compte les flags NVCC
 vllm          = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0", NVCC_APPEND_FLAGS = "-gencode arch=compute_80,code=sm_80" }
-# Pour causal_conv1d
-causal_conv1d = { MAX_JOBS = "4", TORCH_CUDA_ARCH_LIST = "8.0" }
 
 [tool.uv]
 environments = ["sys_platform == 'linux'"]
