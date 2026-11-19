@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from inference.engine import HTREngine
+from processing.html_output import HTML_CONTEXT_LENGTH
 from ray.serve.config import HTTPOptions
 
 MAINTENANCE_FILE = "/tmp/maintenance"
@@ -60,6 +61,10 @@ class VLLMPredictDeployment:
     async def transcribe(self, request: Request) -> Response:
         return await self.engine.transcribe(request)
 
+    @app.post("/transcribe/html")
+    async def transcribe_html(self, request: Request) -> Response:
+        return await self.engine.transcribe_html(request)
+
     @app.get("/")
     async def health(self):
         return Response(content="ok", status_code=200)
@@ -90,7 +95,7 @@ if __name__ == "__main__":
     args = {
         "model": os.getenv("HTR_MODEL_PATH", "/home/fizainef/Weights/Qwen3.5-4B-15092026"),
         "max_num_seqs": 90,
-        "max_model_len": 8192,
+        "max_model_len": HTML_CONTEXT_LENGTH,
         "max_num_batched_tokens": 16384,
         "dtype": "bfloat16",
         "gpu_memory_utilization": 0.95,

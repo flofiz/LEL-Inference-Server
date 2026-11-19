@@ -5,8 +5,9 @@ from typing import AsyncGenerator
 
 from time import sleep
 from fastapi import BackgroundTasks
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import StreamingResponse, Response
+from starlette.responses import JSONResponse, StreamingResponse, Response
 from inference.rswa_policy import assert_config, discover, engine_options
 
 QWEN_VERSION = "qwen35"
@@ -14,6 +15,8 @@ QWEN_VERSION = "qwen35"
 import time
 from processing.postprocessing import postprocess_line, postprocess_output, add_metadata
 from processing.stream_metrics import ScoredLines, score_range, token_text_spans
+from processing.html_output import HTML_CONTEXT_LENGTH, HTML_MAX_TOKENS, unwrap_html_fragment
+from templates.tasks.HTML import HTML_PROMPT
 if QWEN_VERSION=="qwen25":
     from templates.system.HTR import SYSTEM
     from templates.tasks.HTR import PROMPT
@@ -240,19 +243,63 @@ class HTREngine:
     async def may_abort_request(self, request_id) -> None:
         await self.engine.abort(request_id)
 
-    async def transcribe(self, request: Request, stream: bool = False) -> Response:
+    async def _read_image(self, request):
         form = await request.form()
         image = form['image']
         contents = await image.read()
-        # request_dict = await request.json()
-        self.logger.info(image.filename, exc_info=True)
-        request_dict = {"max_tokens": 4096*3, "logprobs": 1}
-        loop = asyncio.get_event_loop()
-        image_width, image_height = await loop.run_in_executor(None, lambda: Image.open(BytesIO(contents)).size)
-        # image_width, image_height = Image.open(BytesIO(contents)).size
-        # image = request_dict.pop("image", None)
+        self.logger.info("%s", image.filename)
+
+        def image_size():
+            with Image.open(BytesIO(contents)) as page:
+                return page.size
+
+        image_width, image_height = await asyncio.to_thread(image_size)
         metadata = {"imageWidth": image_width, "imageHeight": image_height, "model": self.name}
+        return contents, metadata
+
+    async def transcribe(self, request: Request, stream: bool = False) -> Response:
+        contents, metadata = await self._read_image(request)
+        request_dict = {"max_tokens": 4096*3, "logprobs": 1}
         return await self.__call__(request = request, image = contents, prompt = "", metadata = metadata, request_dict = request_dict, stream = stream)
+
+    async def transcribe_html(self, request: Request) -> Response:
+        from processing.preprocessing import get_inputs
+        from vllm.sampling_params import RequestOutputKind, SamplingParams
+        from vllm.utils import random_uuid
+
+        context = self.engine.vllm_config.model_config.max_model_len
+        if context < HTML_CONTEXT_LENGTH:
+            raise HTTPException(503, f"HTML transcription requires a context of at least {HTML_CONTEXT_LENGTH} tokens")
+
+        contents, metadata = await self._read_image(request)
+        tokenizer = self.engine.get_tokenizer()
+        crops = await asyncio.to_thread(lambda: list(get_inputs(
+            contents, tokenizer, HTML_PROMPT, SYSTEM,
+            qwen_version="qwen35", enable_thinking=self.enable_thinking,
+        )))
+        sampling = SamplingParams(
+            temperature=0.0,
+            max_tokens=HTML_MAX_TOKENS,
+            output_kind=RequestOutputKind.FINAL_ONLY,
+        )
+
+        async def generate_fragment(inputs, ratios, offset):
+            output = None
+            async for result in self.engine.generate(inputs, sampling, request_id=random_uuid()):
+                output, = result.outputs
+            if output is None:
+                raise RuntimeError("vLLM returned no HTML completion")
+            return {
+                "html": unwrap_html_fragment(output.text),
+                "offsetX": offset,
+                "width": round(1000 / ratios[0]),
+                "height": round(1000 / ratios[1]),
+                "finishReason": output.finish_reason,
+            }
+
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(generate_fragment(*crop)) for crop in crops]
+        return JSONResponse({**metadata, "pages": [task.result() for task in tasks]})
 
     #TODO: retranscribe endpoint
 

@@ -201,6 +201,31 @@ Pour vérifier le serveur et une vraie transcription après redémarrage :
 uv run --with pytest pytest tests/test_transcribe.py -v --image-path /chemin/page.jpg
 ```
 
+### Transcription HTML
+
+`POST /transcribe/html` accepte le même upload multipart `image` que
+`/transcribe`, qui conserve son format TSV. Le nouveau chemin utilise le prompt
+HTML du checkpoint et retourne du JSON, sans convertir le HTML en polygones :
+
+```bash
+curl --fail-with-body -sS -F "image=@../FRAD021_10M106_05_0004.jpg" \
+  http://127.0.0.1:8000/transcribe/html -o transcription-html.json
+```
+
+La réponse contient `imageWidth`, `imageHeight`, `model` et `pages`. Chaque
+entrée de `pages` contient `html`, `offsetX`, `width`, `height` et `finishReason`.
+Les fragments sont dans l'ordre gauche → droite si l'image est découpée. Les
+coordonnées `coord` restent normalisées sur `[0,1000]` dans le repère de **leur
+fragment** ; `offsetX` (en pixels) donne sa position dans l'image d'origine.
+Seules les clôtures Markdown externes sont retirées. Le HTML reste une sortie
+du modèle : le filtrer avant de l'insérer dans un navigateur.
+
+La génération s'arrête normalement sur EOS, sinon au budget de **16 384 tokens
+par fragment**, dans un contexte de **24 576 tokens**. `finishReason: "length"`
+indique que la sortie peut être incomplète. La route ne streame pas : pour les
+pages longues, utiliser le port local pour les tests ou prévoir un timeout
+plus long côté client et reverse proxy.
+
 ---
 
 ## Modèle
@@ -222,7 +247,7 @@ uv run --with pytest pytest tests/test_transcribe.py -v --image-path /chemin/pag
 | Paramètre | Valeur |
 |-----------|--------|
 | `max_num_seqs` | 90 |
-| `max_model_len` | 8192 |
+| `max_model_len` | 24576 |
 | `max_num_batched_tokens` | 32768 |
 | `dtype` | bfloat16 |
 | `gpu_memory_utilization` | 0.95 |
