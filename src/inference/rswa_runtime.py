@@ -16,7 +16,8 @@ from vllm.v1.kv_cache_interface import MambaSpec, RSWASpec
 
 from inference.rswa_policy import DRAFT, TARGET, assert_config
 
-logger = init_logger(__name__)
+# EngineCore and GPU workers configure the vllm logger, not the root logger.
+logger = init_logger("vllm.rswa")
 
 
 def _observe_first_eviction(manager):

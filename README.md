@@ -123,6 +123,9 @@ HTR_RSWA_TEST_MODEL=/chemin/checkpoint-rswa uv run --no-sync --with pytest \
 Le test force une sortie assez longue pour laisser au moins un bloc évictable
 et vérifie que les log-probabilités générées sont finies. Rechercher `RSWA target
 ran`, `RSWA draft ran` et `RSWA first KV eviction` dans les logs.
+La sortie brute n'est pas enregistrée par défaut. Pour la conserver, ajouter
+`HTR_RSWA_TEST_OUTPUT=./rswa-generation.txt` devant la commande. Ce texte peut
+se répéter après la fin naturelle de la transcription : le test ignore EOS.
 
 Pour démarrer Ray Serve avec ce checkpoint local :
 

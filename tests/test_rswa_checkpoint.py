@@ -14,6 +14,7 @@ def test_rswa_checkpoint_long_multimodal_decode(monkeypatch, request):
     if not model or sys.platform != "linux":
         pytest.skip("Set HTR_RSWA_TEST_MODEL on the Linux GPU host")
     image_bytes = request.getfixturevalue("image_bytes")
+    output_path = os.environ.get("HTR_RSWA_TEST_OUTPUT")
 
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "src"))
     from inference.engine import HTREngine, PROMPT, SYSTEM
@@ -46,8 +47,11 @@ def test_rswa_checkpoint_long_multimodal_decode(monkeypatch, request):
                 output_kind=RequestOutputKind.DELTA,
             )
             generated = 0
+            text_chunks = []
             async for result in htr.engine.generate(inputs, params, request_id="rswa-smoke"):
                 output = result.outputs[0]
+                if output_path:
+                    text_chunks.append(output.text)
                 if not output.token_ids:
                     continue
                 assert len(output.token_ids) == len(output.logprobs)
@@ -55,6 +59,8 @@ def test_rswa_checkpoint_long_multimodal_decode(monkeypatch, request):
                     assert math.isfinite(logprobs[token].logprob), f"Nonfinite logprob at {generated}"
                     generated += 1
             assert generated == count
+            if output_path:
+                Path(output_path).write_text("".join(text_chunks), encoding="utf-8")
         finally:
             htr.shutdown()
 
