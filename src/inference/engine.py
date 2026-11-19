@@ -49,7 +49,8 @@ LINE = rf"{LATIN_CHARS}\t{COORD}\t{COORD}\t{COORD}\t{COORD}\t{ANGLE}\n"
 
 guided_regex = rf"```tsv\n{LINE}+```"
 class HTREngine:
-    def __init__(self, name, *, require_rswa=False, standard_mtp=False, enable_thinking=False, **kwargs):
+    def __init__(self, name, *, require_rswa=False, standard_mtp=False, enable_thinking=False,
+                 stat_loggers=None, **kwargs):
         """
         Construct a VLLM deployment.
 
@@ -100,7 +101,11 @@ class HTREngine:
 
         from vllm.engine.arg_utils import AsyncEngineArgs
         from vllm.engine.async_llm_engine import AsyncLLMEngine
-        from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
+
+        if stat_loggers is None:
+            from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
+
+            stat_loggers = [RayPrometheusStatLogger]
 
         # 1. Configurer le handler de redirection AVANT la création de l'engine
         handler = _VLLMToRayHandler(self.logger)
@@ -114,14 +119,14 @@ class HTREngine:
         args = AsyncEngineArgs(**kwargs)
         if self.rswa_policy is None:
             self.engine = AsyncLLMEngine.from_engine_args(
-                args, stat_loggers=[RayPrometheusStatLogger]
+                args, stat_loggers=stat_loggers
             )
         else:
             config = args.create_engine_config()
             assert_config(config, self.rswa_policy.window)
             self.engine = AsyncLLMEngine.from_vllm_config(
                 config,
-                stat_loggers=[RayPrometheusStatLogger],
+                stat_loggers=stat_loggers,
                 enable_log_requests=args.enable_log_requests,
                 disable_log_stats=args.disable_log_stats,
             )

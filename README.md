@@ -150,6 +150,35 @@ démarrage. Le template Qwen officiel insère un bloc `<think>` déjà fermé da
 le prompt lorsque le thinking est désactivé. Si un checkpoint utilise un
 template personnalisé, celui-ci doit gérer l'option `enable_thinking`.
 
+### Benchmark RSWA avant/après optimisation Triton
+
+Sur l'A40, arrêter Ray Serve et lancer depuis la racine du dépôt, dans le
+venv où le patch RSWA est déjà installé :
+
+```bash
+.venv/bin/python scripts/benchmark_rswa.py \
+  --model ../Weights/Qwen3.5-4B-06112026-sft-html-convert-rswa-w512_grpo \
+  --normal-image ../FRAD021_B_012126_00013.jpg \
+  --long-image ../FRAD021_10M106_05_0004.jpg \
+  --long-lengths 8192 16384 --concurrency 1 4 \
+  --output rswa-baseline.json
+```
+
+La double page est découpée selon les mêmes règles que le serveur. Chaque
+demi-page est mesurée avec les longueurs demandées **par requête**, EOS ignoré.
+La page normale garde son comportement de génération habituel, sous le plafond
+de `--normal-max-tokens`. Le contexte du benchmark vaut 24 576 tokens par
+défaut, pour laisser de la place au prompt multimodal en plus des 16 384
+tokens de sortie. Ceci ne modifie ni les limites du serveur ni le format HTR.
+
+Le rapport JSON contient les temps au premier token et de génération, les
+débits par requête et agrégés, et le pic d'occupation KV observé. Il est mis à
+jour après chaque cas. Pour un premier essai plus court, utiliser
+`--long-lengths 8192 --concurrency 1`. Pour la comparaison avant/après, garder
+les mêmes options et images, et écrire les deux rapports dans des fichiers
+distincts. Les temps sont mesurés au niveau du moteur, hors HTTP et préparation
+initiale des images.
+
 Pour vérifier le serveur et une vraie transcription après redémarrage :
 
 ```bash
