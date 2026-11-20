@@ -24,7 +24,12 @@ def test_benchmark_measures_both_crops_at_requested_concurrency(benchmark):
         async def generate(self, payload, params, request_id):
             self.running += 1
             self.peak = max(self.peak, self.running)
-            cache.record(SimpleNamespace(kv_cache_usage=0.1 * self.running), None)
+            cache.record(SimpleNamespace(
+                kv_cache_usage=0.1 * self.running, num_running_reqs=self.running,
+                num_waiting_reqs=1, spec_decoding_stats=SimpleNamespace(
+                    num_draft_tokens=3, num_accepted_tokens=2,
+                ),
+            ), SimpleNamespace(num_preempted_reqs=1))
             try:
                 await asyncio.sleep(0)
                 yield SimpleNamespace(prompt_token_ids=[1, 2], outputs=[
@@ -48,6 +53,21 @@ def test_benchmark_measures_both_crops_at_requested_concurrency(benchmark):
     assert engine.peak == 2
     assert report["peak_observed_kv_cache_fraction"] == pytest.approx(0.2)
     assert report["median_decode_tokens_per_second"] > 0
+    assert report["scheduler"] == {"peak_running": 2, "peak_waiting": 1, "preemptions": 4}
+    assert report["mtp"]["acceptance_fraction"] == pytest.approx(2 / 3)
+
+    wave = asyncio.run(benchmark.measure_case(
+        engine, cache, "long", [{}, {}], params, True, 3, 1, single_wave=True,
+    ))
+    assert [row["crop"] for row in wave["requests"]] == [1, 2, 1]
+    assert wave["fragments_submitted"] == 3
+    assert wave["scheduler"]["preemptions"] == 3
+
+    from scripts.benchmark_rswa_matrix import summary_row
+
+    row = summary_row(wave, 3, 16384)
+    assert row["mtp_tokens"] == 3 and row["batched_tokens"] == 16384
+    assert row["running_peak"] == 3 and row["gpu_samples"] == 0
 
 
 def test_benchmark_fails_if_a_forced_generation_ends_early(benchmark):

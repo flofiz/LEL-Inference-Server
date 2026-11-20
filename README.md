@@ -336,6 +336,62 @@ après l'envoi ; ce dernier inclut encore le proxy et le prétraitement. Pour un
 lot varié, passer plusieurs fichiers à `--image` : ils sont utilisés en boucle
 à l'intérieur de chaque palier.
 
+### Matrice locale A40 : K=0/1/2/3, concurrence et budget par itération
+
+Cette mesure utilise le moteur **sans Ray HTTP, sans upload et sans proxy**.
+Arrêter `lel`, vérifier que l'A40 est libre et que le patch multi-étapes est
+installé (il est partagé par K=2 et K=3) :
+
+```bash
+sudo systemctl stop lel
+.venv/bin/python src/inference/rswa_patch.py --mtp3
+
+.venv/bin/python scripts/benchmark_rswa_matrix.py \
+  --model /home/fizainef/Weights/Qwen3.5-4B-c400-wsp-hybrid-60-50 \
+  --normal-image ../FRAD021_B_012126_00013.jpg \
+  --long-image ../FRAD021_10M106_05_0004.jpg \
+  --out-dir benchmark-a40
+
+sudo systemctl start lel
+```
+
+`--normal-image` accepte plusieurs pages. Par défaut la matrice compare les
+quatre K et soumet **1, 2, 4, 8, 16, 32, 48, 64, 80, 90, 96 et 128 fragments
+vLLM** par vague (pas des images doubles). Les demi-pages de l'image longue
+sont alternées. `max_num_seqs` reste fixé à 90 par défaut pour comparer avec
+le serveur ; les fragments au-delà peuvent attendre. `--batched-tokens 4096
+8192 16384` compare aussi les budgets de tokens par itération ; le défaut est
+`16384`. Ne pas confondre ce budget et le nombre de fragments en vol. Le
+checkpoint, RSWA et la variante Triton restent identiques ; K=0 désactive
+seulement la spéculation. Les réglages de production ne sont pas modifiés.
+
+La matrice complète peut prendre longtemps. Pour un premier passage, ajouter
+`--suite normal --levels 1 8 32 64 90` ; ensuite comparer les modes proches
+avec `--repeats 3`. Le profil long s'arrête naturellement par défaut ;
+`--long-lengths 8192 16384` force des longueurs identiques pour isoler le débit
+en décodage. Chaque mode redémarre son propre moteur, écrit `engine.log` et
+un `report.json` mis à jour par vague ; la matrice produit `summary.csv` et
+`matrix.json`. `--gpu` choisit le GPU physique (`0` par défaut) pour CUDA et
+`nvidia-smi`. `--wave-timeout` borne chaque vague à 30 minutes par défaut.
+
+**Interprétation :**
+
+- **Capacité KV** : cache proche de 100 % et préemptions qui augmentent. La
+  VRAM réservée dans `nvidia-smi` ne suffit pas à le prouver : vLLM préalloue
+  son cache.
+- **Limite de planification** : séquences actives collées à `max_num_seqs`,
+  file d'attente en hausse et cache loin d'être plein.
+- **Limite côté GPU** : débit qui plafonne sans pression KV. L'activité GPU
+  et le contrôleur mémoire, échantillonnés via `nvidia-smi`, orientent le
+  diagnostic mais ne mesurent ni le taux d'utilisation des Tensor Cores ni
+  la bande passante effective. Pour trancher calcul contre bande passante,
+  profiler une courte vague représentative avec Nsight et des compteurs DRAM
+  et SM ; ne pas utiliser ces exécutions profilées comme scores de référence.
+
+Comparer `fragments_min`, `tokens_s`, `ttft_p95_s` et `acceptance_fraction`
+pour chaque situation, et écarter les essais naturels tronqués ou incomplets
+si l'objectif est la vitesse de transcription complète.
+
 ---
 
 ## Modèle

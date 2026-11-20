@@ -8,6 +8,7 @@ from pathlib import Path
 TARGET = "Qwen3_5ForConditionalGeneration"
 DRAFT = "Qwen3_5MTP"
 BACKEND = "TRITON_ATTN"
+MTP_SETTINGS = (0, 1, 2, 3)
 REQUIRED_METADATA = {
     "allow_rswa": True,
     "version": 1,
@@ -94,13 +95,13 @@ def hf_override(policy, config):
 
 
 def engine_options(policy, kwargs, *, mtp_tokens=1):
-    if type(mtp_tokens) is not int or mtp_tokens not in (1, 3):
-        raise ValueError("RSWA supports native MTP K=1 or K=3")
+    if type(mtp_tokens) is not int or mtp_tokens not in MTP_SETTINGS:
+        raise ValueError("RSWA supports MTP K=0, 1, 2 or 3")
     options = {
         "attention_config": {"backend": BACKEND},
         "speculative_config": {
             "method": "mtp", "num_speculative_tokens": mtp_tokens, "attention_backend": BACKEND,
-        },
+        } if mtp_tokens else None,
         "enable_prefix_caching": False,
         "async_scheduling": False,
         "enforce_eager": True,
@@ -132,18 +133,23 @@ def assert_config(config, window):
     if (type(window) is not int or window < 1
             or model.architectures != [TARGET] or model.rswa_window != window):
         raise RuntimeError("RSWA target architecture/window mismatch")
-    if (spec is None or spec.method != "mtp" or spec.num_speculative_tokens not in (1, 3)
-            or spec.parallel_drafting or spec.use_multi_module_mtp()
-            or spec.uses_dynamic_speculative_decoding() or spec.enable_adaptive_verification):
-        raise RuntimeError("RSWA requires fixed native sequential MTP K=1 or K=3")
-    draft = spec.draft_model_config
-    if draft.architectures != [DRAFT] or draft.rswa_window != window:
-        raise RuntimeError("RSWA draft architecture/window mismatch")
-    if model.hf_text_config.mtp_num_hidden_layers != 1:
-        raise RuntimeError("RSWA requires exactly one native MTP layer")
-    if any(getattr(b, "name", b) != BACKEND for b in (config.attention_config.backend, spec.attention_backend)):
-        raise RuntimeError("RSWA requires Triton attention in both target and draft")
-    if any(str(m.dtype) != "torch.bfloat16" or m.quantization is not None for m in (model, draft)):
+    models = [model]
+    backends = [config.attention_config.backend]
+    if spec is not None:
+        if (spec.method != "mtp" or spec.num_speculative_tokens not in (1, 2, 3)
+                or spec.parallel_drafting or spec.use_multi_module_mtp()
+                or spec.uses_dynamic_speculative_decoding() or spec.enable_adaptive_verification):
+            raise RuntimeError("RSWA requires fixed native sequential MTP with 1 to 3 tokens")
+        draft = spec.draft_model_config
+        if draft.architectures != [DRAFT] or draft.rswa_window != window:
+            raise RuntimeError("RSWA draft architecture/window mismatch")
+        if model.hf_text_config.mtp_num_hidden_layers != 1:
+            raise RuntimeError("RSWA requires exactly one native MTP layer")
+        models.append(draft)
+        backends.append(spec.attention_backend)
+    if any(getattr(b, "name", b) != BACKEND for b in backends):
+        raise RuntimeError("RSWA requires Triton attention")
+    if any(str(m.dtype) != "torch.bfloat16" or m.quantization is not None for m in models):
         raise RuntimeError("RSWA supports only unquantized BF16 target and draft")
     p = config.parallel_config
     if (p.tensor_parallel_size, p.pipeline_parallel_size, p.data_parallel_size,

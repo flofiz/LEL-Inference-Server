@@ -110,11 +110,14 @@ def test_rswa_disallows_overriding_reserved_options(rswa_policy, export, key, va
         rswa_policy.engine_options(policy, {key: value})
 
 
-def test_rswa_mtp3_is_opt_in_and_sequential(rswa_policy, export):
+@pytest.mark.parametrize("k", [0, 1, 2, 3])
+def test_rswa_benchmark_can_disable_or_vary_mtp(rswa_policy, export, k):
     write_export(*export)
     policy = rswa_policy.discover(export[0])
-    assert rswa_policy.engine_options(policy, {}, mtp_tokens=3)["speculative_config"] == {
-        "method": "mtp", "num_speculative_tokens": 3, "attention_backend": "TRITON_ATTN",
-    }
-    with pytest.raises(ValueError, match="K=1 or K=3"):
-        rswa_policy.engine_options(policy, {}, mtp_tokens=2)
+    options = rswa_policy.engine_options(policy, {}, mtp_tokens=k)
+    assert options["speculative_config"] == ({
+        "method": "mtp", "num_speculative_tokens": k, "attention_backend": "TRITON_ATTN",
+    } if k else None)
+    assert options["attention_config"]["backend"] == "TRITON_ATTN"
+    with pytest.raises(ValueError, match="K=0, 1, 2 or 3"):
+        rswa_policy.engine_options(policy, {}, mtp_tokens=4)

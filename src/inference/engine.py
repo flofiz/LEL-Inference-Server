@@ -98,7 +98,7 @@ class HTREngine:
             from inference.rswa_patch import verify_or_apply
 
             kwargs = engine_options(self.rswa_policy, kwargs, mtp_tokens=mtp_tokens)
-            verify_or_apply(mtp3=mtp_tokens == 3)
+            verify_or_apply(mtp3=mtp_tokens > 1)
             os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         elif require_rswa:
             raise ValueError("HTR_REQUIRE_RSWA is set but the checkpoint has no RSWA manifest")

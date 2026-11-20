@@ -75,12 +75,19 @@ class RSWAWorkerExtension:
     def rswa_inspect(self, window):
         config = self.vllm_config
         assert_config(config, window)
+        spec = config.speculative_config
+        mtp_tokens = spec.num_speculative_tokens if spec is not None else 0
         target, draft = self.get_model(), self.get_draft_model()
-        if (type(target).__name__, type(draft).__name__) != (TARGET, DRAFT):
+        if type(target).__name__ != TARGET or (
+            type(draft).__name__ != DRAFT if mtp_tokens else draft is not None
+        ):
             raise RuntimeError("RSWA worker loaded an unexpected target or draft model")
 
         checked = {}
-        for role, model in (("target", target.language_model), ("draft", draft)):
+        models = [("target", target.language_model)]
+        if mtp_tokens:
+            models.append(("draft", draft))
+        for role, model in models:
             layers = [m for m in model.modules() if isinstance(m, Attention)]
             if not layers or (role == "draft" and len(layers) != 1):
                 raise RuntimeError(f"Unexpected RSWA attention layer count in {role}")
@@ -95,9 +102,8 @@ class RSWAWorkerExtension:
 
         gdn = [m for m in target.language_model.modules()
                if isinstance(m, QwenGatedDeltaNetAttention)]
-        mtp_tokens = config.speculative_config.num_speculative_tokens
-        if mtp_tokens == 3 and self.model_runner.speculator.supports_decode_metadata_update:
-            raise RuntimeError("RSWA MTP3 requires fresh attention metadata per draft step")
+        if mtp_tokens > 1 and self.model_runner.speculator.supports_decode_metadata_update:
+            raise RuntimeError("RSWA multi-step MTP requires fresh attention metadata per draft step")
         if not gdn or any(
             not isinstance(spec := layer.get_kv_cache_spec(config), MambaSpec)
             or spec.dtypes[-1] != torch.float32 or spec.num_speculative_blocks != mtp_tokens
@@ -111,7 +117,7 @@ class RSWAWorkerExtension:
                     layer.impl.forward, window, role if index == 0 else None
                 )
         return {"rank": self.rank, "window": window, "target": len(checked["target"]),
-                "draft": len(checked["draft"]), "gdn": len(gdn), "runtime_enforced": True,
+                "draft": len(checked.get("draft", ())), "gdn": len(gdn), "runtime_enforced": True,
                 "mtp_tokens": mtp_tokens,
                 "block_size": max(layer.get_kv_cache_spec(config).block_size
                                   for layer in checked["target"])}
