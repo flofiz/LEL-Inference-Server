@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from PIL import Image
 
 
 @pytest.fixture
@@ -51,3 +52,13 @@ def test_http_benchmark_cancels_remaining_requests_on_first_failure(benchmark):
     result = asyncio.run(asyncio.wait_for(benchmark.wave(request, 4), timeout=1))
     assert result["cancelled"] == 3 and result["completed"] == 0
     assert result["errors"] == ["RuntimeError: deadline exceeded"]
+
+
+def test_resize_respects_qwen_budget_including_double_page_overlap(benchmark, tmp_path):
+    path = tmp_path / "double.png"
+    Image.new("RGB", (3000, 2000), "white").save(path)
+    (data, filename, mime), report = benchmark.prepare_image(path, resize=True)
+    width, height = report["upload_size"]
+    assert width > height and width * height * 1.03 / 2 <= benchmark.QWEN_PAGE_PIXELS
+    assert filename == "double.jpg" and mime == "image/jpeg" and data.startswith(b"\xff\xd8\xff")
+    assert report["original_size"] == [3000, 2000]

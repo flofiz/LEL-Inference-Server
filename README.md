@@ -325,10 +325,16 @@ Sur l'A40, avec le service lancé et sans autre charge de production :
 Le script appelle `127.0.0.1:8000` par défaut, sans navigateur ni proxy. Il
 mesure le temps jusqu'au premier morceau HTML, la durée totale et les nombres
 d'images et de fragments terminés. Il arrête l'escalade et annule les requêtes
-restantes au premier échec ou dépassement de délai (30 s jusqu'au premier
+restantes au premier échec ou dépassement de délai (60 s jusqu'au premier
 delta, 600 s par image, modifiables). Utiliser `journalctl -fu lel` et
 `nvidia-smi -l 1` côté A40 pour expliquer une saturation. `--public` ajoute
 le passage par le proxy HTTPS ; ne l'utiliser qu'en créneau de test convenu.
+`--http1` force HTTP/1.1 pour reproduire les mesures publiques. `--resize`
+ramène l'image au budget Qwen3.5 (2 048 000 pixels par moitié, chevauchement
+inclus). Le rapport distingue le temps d'envoi vu par le client du délai
+après l'envoi ; ce dernier inclut encore le proxy et le prétraitement. Pour un
+lot varié, passer plusieurs fichiers à `--image` : ils sont utilisés en boucle
+à l'intérieur de chaque palier.
 
 ---
 
